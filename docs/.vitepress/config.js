@@ -1,13 +1,13 @@
 import { defineConfig } from 'vitepress';
 
 export default defineConfig({
-  title: 'VoxFlow ASR',
+  title: '语义科技ASR',
   description: '广州语义科技语音识别客户端接入文档',
   base: '/gz-yuyi-asr/',
   lastUpdated: true,
   ignoreDeadLinks: [/^\/console\//],
   themeConfig: {
-    logo: { text: 'VoxFlow' },
+    logo: { text: '语义科技ASR' },
     nav: [
       { text: '文档首页', link: '/' },
       { text: '离线转写', link: '/offline_async_http' },

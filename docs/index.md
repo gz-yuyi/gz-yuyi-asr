@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: VoxFlow ASR
+  name: 语义科技ASR
   text: 客户端接入文档
   tagline: 离线录音转写、声纹注册识别、授权路数控制的 HTTP 接口说明。
   actions:
