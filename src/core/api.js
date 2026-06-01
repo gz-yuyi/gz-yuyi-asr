@@ -8,6 +8,13 @@ export function buildHttpUrl(path) {
 export function initializeEndpointDefaults() {
   if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') return;
   $('httpBase').value = window.location.origin;
+  if ($('wsBase')) {
+    const url = new URL(window.location.origin);
+    url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/api/realtime/ws';
+    url.search = '';
+    $('wsBase').value = url.toString();
+  }
 }
 
 export async function requestText(path, options = {}) {

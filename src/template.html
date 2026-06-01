@@ -3,9 +3,10 @@
     <nav class="sidebar">
       <div class="brand">
         <h1>语义科技ASR</h1>
-        <div>离线测试控制台</div>
+        <div>ASR 测试控制台</div>
       </div>
       <button class="nav-item active" data-panel="offline"><span class="nav-icon">&#9776;</span>离线任务</button>
+      <button class="nav-item" data-panel="realtime"><span class="nav-icon">&#9654;</span>实时转写</button>
       <button class="nav-item" data-panel="browser"><span class="nav-icon">&#128269;</span>任务浏览器</button>
       <button class="nav-item" data-panel="speakers"><span class="nav-icon">&#9783;</span>声纹管理</button>
       <button class="nav-item" data-panel="hotwords"><span class="nav-icon">&#9733;</span>热词管理</button>
@@ -14,6 +15,223 @@
     </nav>
 
     <main class="main">
+      <section class="panel" id="panel-realtime">
+        <h2 class="section-title">实时 WebSocket 转写</h2>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">音频源</div>
+              <div class="card-desc">支持浏览器上传文件分块发送，也支持麦克风实时 PCM 流</div>
+            </div>
+            <div class="status-bar">
+              <div class="chip warn" id="wsChip">
+                <span class="chip-dot"></span>
+                <span id="wsChipLabel">未连接</span>
+              </div>
+              <span class="stats-label" id="statsLabel">chunks: 0 · messages: 0</span>
+            </div>
+          </div>
+
+          <div class="source-tabs">
+            <button class="source-tab active" data-source="file">文件上传</button>
+            <button class="source-tab" data-source="mic">麦克风</button>
+          </div>
+
+          <div class="source-panel active" id="source-file">
+            <div class="form-grid">
+              <div class="fg c6">
+                <label>音频文件</label>
+                <input id="realtimeFile" type="file" accept=".wav,.mp3,.m4a,.aac,.opus,.pcm,audio/*">
+              </div>
+              <div class="fg c3">
+                <label>发送模式</label>
+                <select id="streamMode">
+                  <option value="decode_pcm">浏览器解码 PCM</option>
+                  <option value="raw_once">原始文件一次性</option>
+                  <option value="raw_chunked">原始文件分块</option>
+                </select>
+              </div>
+              <div class="fg c3">
+                <label>audio_encoding</label>
+                <select id="audioEncoding">
+                  <option value="pcm_s16le">pcm_s16le</option>
+                  <option value="wav">wav</option>
+                  <option value="mp3">mp3</option>
+                  <option value="aac">aac</option>
+                  <option value="m4a">m4a</option>
+                  <option value="opus">opus</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="waveform-container" id="waveformWrap">
+              <canvas id="waveformCanvas"></canvas>
+              <div class="waveform-overlay" id="waveformPlaceholder">选择音频文件以预览波形</div>
+            </div>
+            <div class="waveform-info" id="waveformInfo"></div>
+
+            <div class="btn-row">
+              <button class="btn-primary" id="connectBtn">连接并发送</button>
+              <button class="btn-ghost" id="playAudioBtn" disabled>试听</button>
+              <button class="btn-ghost" id="stopAudioBtn" disabled>停止试听</button>
+            </div>
+
+            <div class="progress-bar" id="sendProgress">
+              <div class="progress-fill" id="sendProgressFill"></div>
+            </div>
+          </div>
+
+          <div class="source-panel" id="source-mic">
+            <div class="mic-hero" id="micHero">
+              <div class="mic-circle" id="micCircle">
+                <span class="mic-icon">MIC</span>
+              </div>
+              <div class="mic-hero-text" id="micHeroText">点击下方按钮开始录制</div>
+              <div class="mic-timer hidden" id="micTimerWrap">
+                <span class="mic-pulse"></span>
+                <span id="micTimerLabel">00:00</span>
+              </div>
+            </div>
+
+            <div class="btn-row centered">
+              <button class="btn-success" id="micBtn">开始录制</button>
+              <button class="btn-danger hidden" id="micStopBtn">停止录制</button>
+              <button class="btn-ghost hidden" id="micDownloadBtn">下载录音</button>
+            </div>
+            <div class="card-desc centered-text" id="micDownloadHint">录制结束后可下载最近一次录音</div>
+          </div>
+
+          <div class="live-wave-container" id="liveWaveWrap">
+            <canvas id="liveWaveCanvas"></canvas>
+          </div>
+
+          <div class="divider"></div>
+          <div class="btn-row">
+            <button class="btn-ghost" id="pingBtn">Ping</button>
+            <button class="btn-warn" id="stopBtn">Send Stop</button>
+            <button class="btn-danger" id="closeBtn">断开连接</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">流参数</div>
+              <div class="card-desc">控制分块、VAD、说话人分离、热词和文本规整参数</div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="fg c2">
+              <label>sample_rate</label>
+              <input id="sampleRate" type="number" value="16000">
+            </div>
+            <div class="fg c2">
+              <label>chunk (ms)</label>
+              <input id="chunkMs" type="number" value="100">
+            </div>
+            <div class="fg c2">
+              <label>sleep (ms)</label>
+              <input id="sleepMs" type="number" value="100">
+            </div>
+            <div class="fg c2">
+              <label>raw chunk bytes</label>
+              <input id="rawChunkBytes" type="number" value="65536">
+            </div>
+            <div class="fg c2">
+              <label>enable_speaker</label>
+              <select id="enableSpeaker">
+                <option value="true" selected>true</option>
+                <option value="false">false</option>
+              </select>
+            </div>
+            <div class="fg c2">
+              <label>speaker_num</label>
+              <input id="speakerNum" type="number" placeholder="auto">
+            </div>
+            <div class="fg c2">
+              <label>vad_threshold</label>
+              <input id="vadThreshold" type="number" step="0.01" value="0.25">
+            </div>
+            <div class="fg c2">
+              <label>vad_min_silence (ms)</label>
+              <input id="vadMinSilence" type="number" value="500">
+            </div>
+            <div class="fg c4">
+              <label>hotword_id</label>
+              <input id="realtimeHotwordId" value="default">
+            </div>
+            <div class="fg c4">
+              <label>context</label>
+              <input id="realtimeContext" placeholder="可选">
+            </div>
+            <div class="fg c2">
+              <label>数字转换</label>
+              <select id="realtimeNumberMode">
+                <option value="1" selected>1 - 智能</option>
+                <option value="0">0 - 关闭</option>
+                <option value="3">3 - 数学模式</option>
+              </select>
+            </div>
+            <div class="fg c2">
+              <label>语气词过滤</label>
+              <select id="realtimeFillerMode">
+                <option value="0" selected>0 - 关闭</option>
+                <option value="1">1 - 部分</option>
+                <option value="2">2 - 严格</option>
+              </select>
+            </div>
+            <div class="fg c2">
+              <label>脏词过滤</label>
+              <select id="realtimeProfanityMode">
+                <option value="0" selected>0 - 关闭</option>
+                <option value="1">1 - 删除</option>
+                <option value="2">2 - 替换 *</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">转写结果</div>
+              <div class="card-desc">实时展示分段识别结果，<span class="badge badge-partial">partial</span> 为中间结果，<span class="badge badge-final">final</span> 为最终确认</div>
+            </div>
+            <button class="btn-ghost compact-btn" id="clearSegBtn">清空</button>
+          </div>
+          <div class="table-scroll">
+            <table class="seg-table">
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>Segment ID</th>
+                  <th>Parent</th>
+                  <th>Supersedes</th>
+                  <th>Rev</th>
+                  <th>Source</th>
+                  <th>Speaker</th>
+                  <th>Emotion</th>
+                  <th>Text</th>
+                </tr>
+              </thead>
+              <tbody id="segTbody">
+                <tr><td colspan="9" class="seg-empty">等待转写结果...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title">事件日志</div></div>
+            <button class="btn-ghost compact-btn" id="clearRealtimeLogBtn">清空</button>
+          </div>
+          <div class="log-box" id="realtimeLog"></div>
+        </div>
+      </section>
+
       <section class="panel active" id="panel-offline">
         <h2 class="section-title">离线异步任务</h2>
 
@@ -463,6 +681,13 @@
                 <option value="debug">debug</option>
               </select>
             </div>
+            <div class="fg c12">
+              <label>WebSocket URL</label>
+              <input id="wsBase" value="ws://127.0.0.1:18080/api/realtime/ws">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-ghost" id="syncWsBtn">按 HTTP 地址重置 WS URL</button>
           </div>
         </div>
       </section>

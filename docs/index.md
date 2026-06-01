@@ -4,7 +4,7 @@ layout: home
 hero:
   name: 语义科技ASR
   text: 客户端接入文档
-  tagline: 离线录音转写、声纹注册识别、授权路数控制的 HTTP 接口说明。
+  tagline: 实时流式转写、离线录音转写、声纹注册识别、授权路数控制的接口说明。
   actions:
     - theme: brand
       text: 开始接入
@@ -14,6 +14,8 @@ hero:
       link: /console/
 
 features:
+  - title: 实时 WebSocket 转写
+    details: 浏览器或客户端通过 WebSocket 发送实时音频流，低延迟接收 partial/final 转写事件。
   - title: 离线异步转写
     details: 创建任务、上传音频、轮询状态、下载结果，并支持回调模式。
   - title: 声纹注册与识别
@@ -24,6 +26,7 @@ features:
 
 ## 文档目录
 
+- [实时 WebSocket 转写 API](./realtime-websocket-api.md)
 - [离线异步转写 API](./offline_async_http.md)
 - [声纹注册与识别 API](./speaker_profiles_http.md)
 - [授权机制与调用流程](./authorization-mechanism.md)

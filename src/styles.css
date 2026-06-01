@@ -20,6 +20,7 @@
 
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
+    .hidden { display: none !important; }
     html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
     body { font-family: var(--sans); font-size: 14px; }
     button, input, select, textarea { font: inherit; }
@@ -123,6 +124,9 @@
     .btn-danger { background: #dc2626; }
     .btn-warn { background: #ca8a04; }
     .btn-ghost { background: #27272a; }
+    .compact-btn { padding: 6px 12px; font-size: 12px; }
+    .centered { justify-content: center; }
+    .centered-text { text-align: center; }
 
     .divider { border-top: 1px solid var(--border); margin: 22px 0; }
     .kv-grid { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 12px; }
@@ -138,6 +142,201 @@
     .green { color: var(--green); }
     .red { color: var(--red); }
     .yellow { color: var(--yellow); }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .stats-label { color: var(--subtle); font-size: 12px; font-family: var(--mono); }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--card);
+      color: var(--muted);
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .chip-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--subtle);
+    }
+    .chip.ok .chip-dot { background: var(--green); box-shadow: 0 0 8px rgba(34,197,94,.8); }
+    .chip.warn .chip-dot { background: var(--yellow); box-shadow: 0 0 8px rgba(234,179,8,.75); }
+    .chip.error .chip-dot { background: var(--red); box-shadow: 0 0 8px rgba(239,68,68,.75); }
+    .source-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px;
+      margin-bottom: 16px;
+    }
+    .source-tab {
+      flex: 1;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+      padding: 8px 12px;
+    }
+    .source-tab.active {
+      background: var(--panel);
+      color: var(--text);
+      border-color: var(--border-strong);
+    }
+    .source-panel { display: none; }
+    .source-panel.active { display: block; }
+    .waveform-container,
+    .live-wave-container {
+      position: relative;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-top: 14px;
+    }
+    .waveform-container canvas,
+    .live-wave-container canvas {
+      display: block;
+      width: 100%;
+    }
+    .waveform-container canvas { height: 120px; }
+    .live-wave-container canvas { height: 80px; }
+    .waveform-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--subtle);
+      font-size: 13px;
+      pointer-events: none;
+    }
+    .waveform-info {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      color: var(--subtle);
+      font-size: 12px;
+    }
+    .progress-bar {
+      height: 4px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--blue);
+      transition: width .2s ease;
+    }
+    .mic-hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      padding: 30px 16px 18px;
+    }
+    .mic-circle {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--border);
+      background: var(--card);
+      color: var(--muted);
+      transition: .2s ease;
+    }
+    .mic-circle.recording {
+      border-color: var(--red);
+      color: var(--red);
+      background: rgba(239,68,68,.12);
+      animation: micPulse 2s ease-in-out infinite;
+    }
+    .mic-icon { font-size: 12px; font-family: var(--mono); font-weight: 800; }
+    .mic-hero-text { color: var(--subtle); }
+    .mic-timer {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      color: var(--red);
+      font-size: 22px;
+      font-weight: 800;
+    }
+    .mic-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: micDot 1.2s ease-in-out infinite;
+    }
+    @keyframes micPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.35); }
+      50% { box-shadow: 0 0 0 14px rgba(239,68,68,0); }
+    }
+    @keyframes micDot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .35; }
+    }
+    .table-scroll { overflow-x: auto; }
+    .seg-table {
+      width: 100%;
+      min-width: 940px;
+      border-collapse: collapse;
+      margin-top: 4px;
+    }
+    .seg-table th,
+    .seg-table td {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 11px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+    .seg-table th {
+      color: var(--subtle);
+      font-size: 12px;
+      background: var(--panel-2);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .seg-table .seg-empty {
+      color: var(--subtle);
+      text-align: center;
+      padding: 30px;
+    }
+    .seg-table .seg-text {
+      min-width: 260px;
+      overflow-wrap: anywhere;
+      line-height: 1.5;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .badge-partial { background: rgba(234,179,8,.14); color: var(--yellow); }
+    .badge-final { background: rgba(34,197,94,.16); color: var(--green); }
 
     .task-browser-layout {
       display: grid;
