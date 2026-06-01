@@ -8,6 +8,14 @@ function speakerProfileId() {
   return $('speakerProfileId').value.trim();
 }
 
+function speakerLookupProfileId() {
+  return $('speakerProfileSearchId').value.trim() || speakerProfileId();
+}
+
+function speakerFilterGroupId() {
+  return $('speakerFilterGroupId').value.trim() || 'default';
+}
+
 function setIfElement(id, value) {
   const el = $(id);
   if (el) el.value = value || '';
@@ -16,12 +24,57 @@ function setIfElement(id, value) {
 function fillProfileIdentity(profileId, speakerName) {
   if (profileId) {
     setIfElement('speakerProfileId', profileId);
+    setIfElement('speakerProfileSearchId', profileId);
     setIfElement('speakerEnrollProfileId', profileId);
   }
   if (speakerName) {
     setIfElement('speakerName', speakerName);
     setIfElement('speakerEnrollName', speakerName);
   }
+  updateSpeakerContext();
+}
+
+function speakerLabel(profileId = speakerProfileId(), speakerName = $('speakerName').value.trim()) {
+  if (!profileId) return '当前未选择人员';
+  return `${speakerName || '未命名'} / ${profileId}`;
+}
+
+function updateSpeakerContext() {
+  const profileId = speakerProfileId();
+  const speakerName = $('speakerName').value.trim();
+  $('speakerCurrentProfile').textContent = speakerLabel(profileId, speakerName);
+  $('speakerEnrollTargetText').textContent = profileId
+    ? `音频会注册到 ${speakerLabel(profileId, speakerName)}`
+    : '先从列表选择人员，或创建人员后再上传音频';
+  setIfElement('speakerEnrollProfileId', profileId);
+  setIfElement('speakerEnrollName', speakerName);
+}
+
+function setSpeakerEditorMode(mode) {
+  const isCreate = mode === 'create';
+  $('speakerProfileId').readOnly = !isCreate;
+  $('createSpeakerBtn').classList.toggle('hidden', !isCreate);
+  $('updateSpeakerBtn').classList.toggle('hidden', isCreate);
+  $('deleteSpeakerBtn').classList.toggle('hidden', isCreate);
+  $('speakerEditorHint').textContent = isCreate
+    ? '新增人员时只需要填写姓名；人员 ID 可留空由服务端生成'
+    : '正在编辑当前人员；人员 ID 保持只读，避免误改身份';
+}
+
+function startCreateSpeakerProfile() {
+  setSpeakerEditorMode('create');
+  setIfElement('speakerProfileId', '');
+  setIfElement('speakerProfileSearchId', '');
+  setIfElement('speakerName', '');
+  setIfElement('speakerDescription', '');
+  setIfElement('speakerStatus', 'active');
+  setIfElement('speakerGroupId', speakerFilterGroupId());
+  setIfElement('speakerGroupName', '');
+  setIfElement('speakerEnrollProfileId', '');
+  setIfElement('speakerEnrollName', '');
+  $('speakerEnrollAutoCreate').checked = false;
+  $('speakerHardDelete').checked = false;
+  updateSpeakerContext();
 }
 
 function speakerBasePayload() {
@@ -57,12 +110,14 @@ function profileFromResponse(res) {
 
 function fillSpeakerForm(profile) {
   if (!profile) return;
+  setSpeakerEditorMode('edit');
   fillProfileIdentity(profile.SpeakerProfileId, profile.SpeakerName);
   $('speakerDescription').value = profile.Description || '';
-  $('speakerStatus').value = profile.Status || '';
+  $('speakerStatus').value = profile.Status || 'active';
   const groups = Array.isArray(profile.Groups) ? profile.Groups : [];
   if (groups[0]?.GroupId) $('speakerGroupId').value = groups[0].GroupId;
   if (groups[0]?.GroupName) $('speakerGroupName').value = groups[0].GroupName;
+  updateSpeakerContext();
 }
 
 function renderProfileGroups(groups) {
@@ -71,9 +126,9 @@ function renderProfileGroups(groups) {
   return `Groups: ${items.map(group => `${group.GroupName || group.GroupId || '-'}(${group.GroupId || '-'})`).join(', ')}`;
 }
 
-function renderEnrollmentList(enrollments) {
+function renderEnrollmentList(enrollments, profileId = '') {
   if (!Array.isArray(enrollments) || !enrollments.length) {
-    return '<div class="profile-sub">暂无 enrollment</div>';
+    return '<div class="profile-sub">暂无声纹样本</div>';
   }
   return `
         <div class="enrollment-list">
@@ -83,7 +138,7 @@ function renderEnrollmentList(enrollments) {
                 <div><span class="mono">${esc(item.EnrollmentId || '-')}</span></div>
                 <div>${esc(renderEnrollmentSummary(item))}</div>
               </div>
-              <button class="btn-ghost use-enrollment-btn" data-enrollment-id="${esc(item.EnrollmentId || '')}">填入删除框</button>
+              <button class="btn-danger delete-enrollment-item-btn" data-profile-id="${esc(profileId)}" data-enrollment-id="${esc(item.EnrollmentId || '')}">删除样本</button>
             </div>
           `).join('')}
         </div>
@@ -98,6 +153,9 @@ function renderSpeakerProfiles(items) {
   }
   $('speakerProfilesList').innerHTML = profiles.map(profile => {
     const enrollments = Array.isArray(profile.Enrollments) ? profile.Enrollments : [];
+    const profileId = profile.SpeakerProfileId || '';
+    const nextStatus = profile.Status === 'disabled' ? 'active' : 'disabled';
+    const toggleLabel = profile.Status === 'disabled' ? '启用' : '禁用';
     return `
           <div class="profile-card">
             <div class="profile-head">
@@ -105,25 +163,39 @@ function renderSpeakerProfiles(items) {
               <span class="match-badge ${esc(profile.Status || '')}">${esc(profile.Status || '-')}</span>
             </div>
             <div class="profile-sub">
-              <div>ProfileId: <span class="mono">${esc(profile.SpeakerProfileId || '-')}</span></div>
+              <div>ProfileId: <span class="mono">${esc(profileId || '-')}</span></div>
               <div>${esc(renderProfileGroups(profile.Groups))}</div>
-              <div>Enrollments: ${esc(profile.EnrollmentCount ?? enrollments.length ?? 0)}</div>
+              <div>样本数: ${esc(profile.EnrollmentCount ?? enrollments.length ?? 0)}</div>
               ${profile.Description ? `<div>${esc(profile.Description)}</div>` : ''}
             </div>
-            <div class="btn-row">
-              <button class="btn-ghost use-profile-btn" data-profile-id="${esc(profile.SpeakerProfileId || '')}">填入表单</button>
+            <div class="btn-row profile-actions">
+              <button class="btn-primary open-profile-btn" data-profile-id="${esc(profileId)}">查看详情</button>
+              <button class="btn-success enroll-profile-btn" data-profile-id="${esc(profileId)}">注册声纹</button>
+              <button class="btn-ghost toggle-profile-btn" data-profile-id="${esc(profileId)}" data-next-status="${esc(nextStatus)}">${toggleLabel}</button>
+              <button class="btn-danger delete-profile-item-btn" data-profile-id="${esc(profileId)}">删除</button>
             </div>
-            ${renderEnrollmentList(enrollments)}
+            ${renderEnrollmentList(enrollments, profileId)}
           </div>
         `;
   }).join('');
-  qsa('#speakerProfilesList .use-profile-btn').forEach(btn => {
+  qsa('#speakerProfilesList .open-profile-btn').forEach(btn => {
     btn.addEventListener('click', () => loadSpeakerProfile(btn.dataset.profileId));
   });
-  qsa('#speakerProfilesList .use-enrollment-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      $('speakerEnrollmentId').value = btn.dataset.enrollmentId || '';
+  qsa('#speakerProfilesList .enroll-profile-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await loadSpeakerProfile(btn.dataset.profileId);
+      $('speakerEnrollFile').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('speakerEnrollFile').focus();
     });
+  });
+  qsa('#speakerProfilesList .toggle-profile-btn').forEach(btn => {
+    btn.addEventListener('click', () => quickUpdateSpeakerStatus(btn.dataset.profileId, btn.dataset.nextStatus));
+  });
+  qsa('#speakerProfilesList .delete-profile-item-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteSpeakerProfile(btn.dataset.profileId));
+  });
+  qsa('#speakerProfilesList .delete-enrollment-item-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteSpeakerEnrollment(btn.dataset.enrollmentId, btn.dataset.profileId));
   });
 }
 
@@ -138,7 +210,7 @@ function logSpeakerResponse(res, action) {
 
 export async function listSpeakerProfiles() {
   const query = buildQuery({
-    GroupId: $('speakerGroupId').value.trim() || 'default',
+    GroupId: speakerFilterGroupId(),
     Status: $('speakerListStatus').value,
     Limit: Math.max(1, Math.min(200, Number($('speakerListLimit').value || 50))),
     Offset: Math.max(0, Number($('speakerListOffset').value || 0)),
@@ -155,16 +227,17 @@ export async function listSpeakerProfiles() {
   }
 }
 
-async function loadSpeakerProfile(profileId = speakerProfileId()) {
+async function loadSpeakerProfile(profileId = speakerLookupProfileId()) {
   const safeId = String(profileId || '').trim();
   if (!safeId) {
-    toast('请填写 SpeakerProfileId', 'error');
+    toast('请填写或选择人员 ID', 'error');
+    $('speakerProfileSearchId').focus();
     return;
   }
   try {
     const res = await httpJson(`/api/speakers/get${buildQuery({
       SpeakerProfileId: safeId,
-      GroupId: $('speakerGroupId').value.trim(),
+      GroupId: speakerFilterGroupId(),
     })}`);
     logSpeakerResponse(res, '查询 Profile');
     const profile = profileFromResponse(res);
@@ -180,7 +253,8 @@ async function loadSpeakerProfile(profileId = speakerProfileId()) {
 async function createSpeakerProfile() {
   const body = speakerBasePayload();
   if (!body.SpeakerName) {
-    toast('请填写 SpeakerName', 'error');
+    toast('请填写姓名', 'error');
+    $('speakerName').focus();
     return;
   }
   try {
@@ -200,7 +274,7 @@ async function updateSpeakerProfile() {
   const body = speakerBasePayload();
   const status = $('speakerStatus').value;
   if (!body.SpeakerProfileId) {
-    toast('请填写 SpeakerProfileId', 'error');
+    toast('请先选择人员', 'error');
     return;
   }
   if (status) body.Status = status;
@@ -217,22 +291,45 @@ async function updateSpeakerProfile() {
   }
 }
 
-async function deleteSpeakerProfile() {
-  const profileId = speakerProfileId();
-  if (!profileId) {
-    toast('请填写 SpeakerProfileId', 'error');
+async function quickUpdateSpeakerStatus(profileId, status) {
+  const safeId = String(profileId || '').trim();
+  if (!safeId || !status) return;
+  try {
+    const res = await httpJson('/api/speakers/update', {
+      method: 'POST',
+      body: { SpeakerProfileId: safeId, Status: status },
+    });
+    logSpeakerResponse(res, status === 'active' ? '启用 Profile' : '禁用 Profile');
+    toast(status === 'active' ? '人员已启用' : '人员已禁用', 'success');
+    if (speakerProfileId() === safeId) {
+      const profile = profileFromResponse(res);
+      if (profile) fillSpeakerForm(profile);
+    }
+    await listSpeakerProfiles();
+  } catch (err) {
+    appendLog($('speakerLog'), `状态更新失败: ${err.message}`, 'log-err', 'error');
+    toast(`状态更新失败: ${err.message}`, 'error');
+  }
+}
+
+async function deleteSpeakerProfile(profileId = speakerProfileId()) {
+  const safeId = String(profileId || '').trim();
+  if (!safeId) {
+    toast('请先选择人员', 'error');
     return;
   }
+  if (!window.confirm(`确认删除人员 ${safeId}？`)) return;
   try {
     const res = await httpJson('/api/speakers/delete', {
       method: 'POST',
       body: {
-        SpeakerProfileId: profileId,
+        SpeakerProfileId: safeId,
         HardDelete: $('speakerHardDelete').checked,
       },
     });
     logSpeakerResponse(res, '删除 Profile');
     toast('删除请求已完成', 'success');
+    if (speakerProfileId() === safeId) startCreateSpeakerProfile();
     await listSpeakerProfiles();
   } catch (err) {
     appendLog($('speakerLog'), `删除失败: ${err.message}`, 'log-err', 'error');
@@ -258,13 +355,13 @@ function speakerEnrollPayload() {
 
 function validateSpeakerEnrollmentPayload(payload) {
   if (!payload.SpeakerProfileId) {
-    toast('请填写注册用 SpeakerProfileId', 'error');
-    $('speakerEnrollProfileId').focus();
+    toast('请先选择或创建人员', 'error');
+    $('speakerName').focus();
     return false;
   }
   if (payload.AutoCreate && !payload.SpeakerName) {
-    toast('AutoCreate 开启时请填写 SpeakerName', 'error');
-    $('speakerEnrollName').focus();
+    toast('自动创建人员时请填写姓名', 'error');
+    $('speakerName').focus();
     return false;
   }
   return true;
@@ -353,20 +450,22 @@ async function pathSpeakerEnrollment() {
   }
 }
 
-async function deleteSpeakerEnrollment() {
-  const enrollmentId = $('speakerEnrollmentId').value.trim();
-  if (!enrollmentId) {
-    toast('请填写 EnrollmentId', 'error');
+async function deleteSpeakerEnrollment(enrollmentId = $('speakerEnrollmentId').value.trim(), profileId = speakerProfileId()) {
+  const safeId = String(enrollmentId || '').trim();
+  if (!safeId) {
+    toast('请选择要删除的声纹样本', 'error');
     return;
   }
+  if (!window.confirm(`确认删除声纹样本 ${safeId}？`)) return;
   try {
     const res = await httpJson('/api/speakers/delete_enrollment', {
       method: 'POST',
-      body: { EnrollmentId: enrollmentId },
+      body: { EnrollmentId: safeId },
     });
-    logSpeakerResponse(res, '删除 Enrollment');
-    toast('Enrollment 已删除', 'success');
-    if (speakerProfileId()) await loadSpeakerProfile();
+    logSpeakerResponse(res, '删除声纹样本');
+    toast('声纹样本已删除', 'success');
+    if (profileId) await loadSpeakerProfile(profileId);
+    else await listSpeakerProfiles();
   } catch (err) {
     appendLog($('speakerLog'), `删除 enrollment 失败: ${err.message}`, 'log-err', 'error');
     toast(`删除失败: ${err.message}`, 'error');
@@ -375,15 +474,19 @@ async function deleteSpeakerEnrollment() {
 
 export function registerSpeakers() {
   $('speakerEnrollFile').addEventListener('change', updateSpeakerEnrollUploadStatus);
+  $('newSpeakerBtn').addEventListener('click', startCreateSpeakerProfile);
+  $('speakerProfileId').addEventListener('input', updateSpeakerContext);
+  $('speakerName').addEventListener('input', updateSpeakerContext);
   $('createSpeakerBtn').addEventListener('click', createSpeakerProfile);
   $('getSpeakerBtn').addEventListener('click', () => loadSpeakerProfile());
   $('listSpeakersBtn').addEventListener('click', listSpeakerProfiles);
   $('updateSpeakerBtn').addEventListener('click', updateSpeakerProfile);
-  $('deleteSpeakerBtn').addEventListener('click', deleteSpeakerProfile);
+  $('deleteSpeakerBtn').addEventListener('click', () => deleteSpeakerProfile());
   $('uploadSpeakerEnrollBtn').addEventListener('click', uploadSpeakerEnrollment);
   $('pathSpeakerEnrollBtn').addEventListener('click', pathSpeakerEnrollment);
-  $('deleteSpeakerEnrollmentBtn').addEventListener('click', deleteSpeakerEnrollment);
+  $('deleteSpeakerEnrollmentBtn').addEventListener('click', () => deleteSpeakerEnrollment());
   $('clearSpeakerLogBtn').addEventListener('click', () => { $('speakerLog').innerHTML = ''; });
+  startCreateSpeakerProfile();
 
   return { listSpeakerProfiles };
 }

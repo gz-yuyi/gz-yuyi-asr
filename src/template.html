@@ -455,141 +455,167 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">Profile 管理</div>
-              <div class="card-desc">对应 <code>/api/speakers/create</code>、<code>/api/speakers/get</code>、<code>/api/speakers/list</code>、<code>/api/speakers/update</code>、<code>/api/speakers/delete</code></div>
+              <div class="card-title">人员列表</div>
+              <div class="card-desc">选择人员后再修改资料、注册声纹或删除样本</div>
             </div>
+            <button class="btn-primary" id="newSpeakerBtn">新增人员</button>
           </div>
           <div class="form-grid">
             <div class="fg c4">
-              <label>SpeakerProfileId</label>
-              <input id="speakerProfileId" placeholder="例如 spk_zhangsan；创建时可留空">
-            </div>
-            <div class="fg c4">
-              <label>SpeakerName</label>
-              <input id="speakerName" placeholder="显示名称">
-            </div>
-            <div class="fg c4">
-              <label>Status</label>
-              <select id="speakerStatus">
-                <option value="">不修改</option>
-                <option value="active">active</option>
-                <option value="disabled">disabled</option>
-              </select>
-            </div>
-            <div class="fg c12">
-              <label>Description</label>
-              <input id="speakerDescription" placeholder="可选描述">
-            </div>
-            <div class="fg c6">
-              <label>GroupId</label>
-              <input id="speakerGroupId" value="default" placeholder="不填则使用 default">
-            </div>
-            <div class="fg c6">
-              <label>GroupName</label>
-              <input id="speakerGroupName" placeholder="可选组名">
+              <label>分组</label>
+              <input id="speakerFilterGroupId" value="default" placeholder="default">
             </div>
             <div class="fg c3">
-              <label>List Status</label>
+              <label>状态</label>
               <select id="speakerListStatus">
                 <option value="active" selected>active</option>
                 <option value="disabled">disabled</option>
                 <option value="all">all</option>
               </select>
             </div>
-            <div class="fg c2">
-              <label>Limit</label>
-              <input id="speakerListLimit" type="number" min="1" max="200" value="50">
+            <div class="fg c5">
+              <label>按人员 ID 查询</label>
+              <input id="speakerProfileSearchId" placeholder="可选，精确查询单个人员">
             </div>
-            <div class="fg c2">
-              <label>Offset</label>
-              <input id="speakerListOffset" type="number" min="0" value="0">
-            </div>
-            <div class="fg c5" style="align-self:end;">
-              <label class="inline-check">
-                <input id="speakerHardDelete" type="checkbox">
-                HardDelete
-              </label>
+            <div class="fg c12">
+              <details class="advanced-panel">
+                <summary>分页设置</summary>
+                <div class="form-grid">
+                  <div class="fg c3">
+                    <label>Limit</label>
+                    <input id="speakerListLimit" type="number" min="1" max="200" value="50">
+                  </div>
+                  <div class="fg c3">
+                    <label>Offset</label>
+                    <input id="speakerListOffset" type="number" min="0" value="0">
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
           <div class="btn-row">
-            <button class="btn-primary" id="createSpeakerBtn">创建 Profile</button>
-            <button class="btn-ghost" id="getSpeakerBtn">查询单个</button>
-            <button class="btn-ghost" id="listSpeakersBtn">列出 Profile</button>
-            <button class="btn-warn" id="updateSpeakerBtn">更新 Profile</button>
-            <button class="btn-danger" id="deleteSpeakerBtn">删除 Profile</button>
+            <button class="btn-primary" id="listSpeakersBtn">刷新列表</button>
+            <button class="btn-ghost" id="getSpeakerBtn">查询人员</button>
+          </div>
+          <div class="profile-list speaker-list-panel" id="speakerProfilesList">
+            <div class="empty-state">点击“刷新列表”加载声纹人员</div>
           </div>
         </div>
 
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">注册声纹</div>
-              <div class="card-desc">上传使用 <code>/api/speakers/enroll_upload</code>，URL / 服务器本地路径使用 <code>/api/speakers/enroll</code></div>
+              <div class="card-title">人员详情</div>
+              <div class="card-desc" id="speakerEditorHint">新增人员时只需要填写姓名；选择列表中的人员后可修改名称、备注、状态和分组</div>
+            </div>
+          </div>
+          <div class="current-profile" id="speakerCurrentProfile">当前未选择人员</div>
+          <div class="form-grid">
+            <div class="fg c4">
+              <label>人员 ID</label>
+              <input id="speakerProfileId" placeholder="可留空由服务端生成">
+            </div>
+            <div class="fg c4">
+              <label>姓名</label>
+              <input id="speakerName" placeholder="显示名称">
+            </div>
+            <div class="fg c4">
+              <label>状态</label>
+              <select id="speakerStatus">
+                <option value="active">active</option>
+                <option value="disabled">disabled</option>
+              </select>
+            </div>
+            <div class="fg c12">
+              <label>备注</label>
+              <input id="speakerDescription" placeholder="可选">
+            </div>
+            <div class="fg c6">
+              <label>分组 ID</label>
+              <input id="speakerGroupId" value="default" placeholder="default">
+            </div>
+            <div class="fg c6">
+              <label>分组名称</label>
+              <input id="speakerGroupName" placeholder="可选">
+            </div>
+            <div class="fg c12">
+              <details class="advanced-panel">
+                <summary>删除选项</summary>
+                <label class="inline-check">
+                  <input id="speakerHardDelete" type="checkbox">
+                  物理删除人员和关联数据
+                </label>
+              </details>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-success" id="createSpeakerBtn">创建人员</button>
+            <button class="btn-primary hidden" id="updateSpeakerBtn">保存修改</button>
+            <button class="btn-danger hidden" id="deleteSpeakerBtn">删除人员</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">注册声纹样本</div>
+              <div class="card-desc" id="speakerEnrollTargetText">先从列表选择人员，或创建人员后再上传音频</div>
             </div>
           </div>
           <div class="form-grid">
             <div class="fg c4">
-              <label>SpeakerProfileId</label>
-              <input id="speakerEnrollProfileId" placeholder="注册到哪个 Profile">
+              <label>当前人员 ID</label>
+              <input id="speakerEnrollProfileId" placeholder="未选择" readonly>
             </div>
             <div class="fg c4">
-              <label>SpeakerName</label>
-              <input id="speakerEnrollName" placeholder="AutoCreate 时必填">
-            </div>
-            <div class="fg c4">
-              <label>AutoCreate</label>
-              <label class="inline-check">
-                <input id="speakerEnrollAutoCreate" type="checkbox" checked>
-                自动创建 Profile
-              </label>
-            </div>
-            <div class="fg c8">
-              <label>浏览器上传音频</label>
-              <input id="speakerEnrollFile" type="file" accept=".wav,.mp3,.m4a,.aac,.opus,.pcm,audio/*">
+              <label>当前姓名</label>
+              <input id="speakerEnrollName" placeholder="未选择" readonly>
             </div>
             <div class="fg c4">
               <label>上传状态</label>
               <input id="speakerEnrollUploadStatus" value="未选择文件" readonly>
             </div>
-            <div class="fg c3">
-              <label>SourceType</label>
-              <select id="speakerEnrollSourceType">
-                <option value="0">0 - URL</option>
-                <option value="1">1 - 服务器本地路径</option>
-              </select>
-            </div>
-            <div class="fg c6">
-              <label>Url</label>
-              <input id="speakerEnrollUrl" placeholder="SourceType=0 时填写">
-            </div>
-            <div class="fg c12">
-              <label>Extra</label>
-              <input id="speakerEnrollExtra" placeholder="SourceType=1 时填写服务器上的绝对路径">
-            </div>
             <div class="fg c8">
-              <label>EnrollmentId</label>
-              <input id="speakerEnrollmentId" placeholder="删除单条 enrollment 时填写">
+              <label>浏览器上传音频</label>
+              <input id="speakerEnrollFile" type="file" accept=".wav,.mp3,.m4a,.aac,.opus,.pcm,audio/*">
             </div>
             <div class="fg c4" style="align-self:end;">
-              <button class="btn-danger" id="deleteSpeakerEnrollmentBtn" style="width:100%;">删除 Enrollment</button>
+              <button class="btn-success" id="uploadSpeakerEnrollBtn" style="width:100%;">上传并注册</button>
+            </div>
+            <div class="fg c12">
+              <details class="advanced-panel">
+                <summary>URL / 服务器本地路径注册</summary>
+                <div class="form-grid">
+                  <div class="fg c3">
+                    <label>SourceType</label>
+                    <select id="speakerEnrollSourceType">
+                      <option value="0">0 - URL</option>
+                      <option value="1">1 - 服务器本地路径</option>
+                    </select>
+                  </div>
+                  <div class="fg c9">
+                    <label>Url</label>
+                    <input id="speakerEnrollUrl" placeholder="SourceType=0 时填写">
+                  </div>
+                  <div class="fg c12">
+                    <label>Extra</label>
+                    <input id="speakerEnrollExtra" placeholder="SourceType=1 时填写服务器上的绝对路径">
+                  </div>
+                  <div class="fg c12">
+                    <label class="inline-check">
+                      <input id="speakerEnrollAutoCreate" type="checkbox">
+                      如果人员不存在则自动创建
+                    </label>
+                  </div>
+                  <div class="fg c12">
+                    <button class="btn-primary" id="pathSpeakerEnrollBtn">URL / 本地路径注册</button>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
-          <div class="btn-row">
-            <button class="btn-success" id="uploadSpeakerEnrollBtn">上传并注册</button>
-            <button class="btn-primary" id="pathSpeakerEnrollBtn">URL / 本地路径注册</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Profile 列表</div>
-              <div class="card-desc">查询或注册成功后会自动更新这里</div>
-            </div>
-          </div>
-          <div class="profile-list" id="speakerProfilesList">
-            <div class="empty-state">点击“列出 Profile”加载声纹数据</div>
-          </div>
+          <input id="speakerEnrollmentId" type="hidden">
+          <button class="hidden" id="deleteSpeakerEnrollmentBtn" type="button">删除样本</button>
         </div>
 
         <div class="card">

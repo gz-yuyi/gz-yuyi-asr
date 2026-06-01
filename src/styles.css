@@ -105,6 +105,7 @@
     }
     textarea { min-height: 110px; resize: vertical; }
     input:focus, select:focus, textarea:focus { border-color: var(--blue); }
+    input[readonly] { color: var(--muted); background: rgba(255,255,255,0.035); }
 
     .btn-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
     button {
@@ -127,6 +128,29 @@
     .compact-btn { padding: 6px 12px; font-size: 12px; }
     .centered { justify-content: center; }
     .centered-text { text-align: center; }
+    .advanced-panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 10px 12px;
+    }
+    .advanced-panel summary {
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 750;
+      list-style-position: inside;
+    }
+    .advanced-panel .form-grid { margin-top: 12px; }
+    .current-profile {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      color: var(--muted);
+      font-family: var(--mono);
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      overflow-wrap: anywhere;
+    }
 
     .divider { border-top: 1px solid var(--border); margin: 22px 0; }
     .kv-grid { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 12px; }
@@ -559,12 +583,14 @@
       white-space: nowrap;
     }
     .match-badge.matched { color: var(--green); border-color: rgba(34,197,94,.42); }
+    .match-badge.active { color: var(--green); border-color: rgba(34,197,94,.42); }
     .match-badge.unknown { color: var(--yellow); border-color: rgba(234,179,8,.42); }
     .match-badge.disabled { color: var(--subtle); }
     .profile-list, .match-list {
       display: grid;
       gap: 10px;
     }
+    .speaker-list-panel { margin-top: 16px; }
     .profile-card, .match-card {
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -588,6 +614,7 @@
       line-height: 1.5;
       overflow-wrap: anywhere;
     }
+    .profile-actions { margin-top: 12px; }
     .enrollment-list {
       display: grid;
       gap: 6px;
