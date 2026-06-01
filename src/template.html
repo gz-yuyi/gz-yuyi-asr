@@ -1,0 +1,470 @@
+  <div class="toast-container" id="toasts"></div>
+  <div class="app">
+    <nav class="sidebar">
+      <div class="brand">
+        <h1>VoxFlow</h1>
+        <div>Offline Test Console</div>
+      </div>
+      <button class="nav-item active" data-panel="offline"><span class="nav-icon">&#9776;</span>离线任务</button>
+      <button class="nav-item" data-panel="browser"><span class="nav-icon">&#128269;</span>任务浏览器</button>
+      <button class="nav-item" data-panel="speakers"><span class="nav-icon">&#9783;</span>声纹管理</button>
+      <button class="nav-item" data-panel="hotwords"><span class="nav-icon">&#9733;</span>热词管理</button>
+      <button class="nav-item" data-panel="status"><span class="nav-icon">&#9673;</span>系统状态</button>
+      <button class="nav-item" data-panel="settings"><span class="nav-icon">&#9881;</span>连接配置</button>
+    </nav>
+
+    <main class="main">
+      <section class="panel active" id="panel-offline">
+        <h2 class="section-title">离线异步任务</h2>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">创建任务</div>
+              <div class="card-desc">URL / 服务器本地路径使用 <code>POST /api/asr/create_task</code></div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="fg c3">
+              <label>SourceType</label>
+              <select id="offlineSourceType">
+                <option value="0">0 - URL</option>
+                <option value="1">1 - 服务器本地路径</option>
+              </select>
+            </div>
+            <div class="fg c9">
+              <label>Url</label>
+              <input id="offlineUrl" placeholder="SourceType=0 时填写，服务器必须能访问该 URL">
+            </div>
+            <div class="fg c12">
+              <label>Extra</label>
+              <input id="offlineExtra" placeholder="SourceType=1 时填写服务器上的绝对路径">
+            </div>
+            <div class="fg c12">
+              <label>CallbackUrl</label>
+              <input id="offlineCallbackUrl" placeholder="可选回调地址">
+            </div>
+            <div class="fg c6">
+              <label>HotwordId</label>
+              <input id="offlineHotwordId" value="default">
+            </div>
+            <div class="fg c6">
+              <label>Context</label>
+              <input id="offlineContext" placeholder="可选提示词">
+            </div>
+            <div class="fg c4">
+              <label>NumberNormalizationMode</label>
+              <select id="offlineNumberMode">
+                <option value="1" selected>1 - 智能</option>
+                <option value="0">0 - 关闭</option>
+                <option value="3">3 - 数学模式</option>
+              </select>
+            </div>
+            <div class="fg c4">
+              <label>FillerFilterMode</label>
+              <select id="offlineFillerMode">
+                <option value="0" selected>0 - 关闭</option>
+                <option value="1">1 - 部分</option>
+                <option value="2">2 - 严格</option>
+              </select>
+            </div>
+            <div class="fg c4">
+              <label>ProfanityFilterMode</label>
+              <select id="offlineProfanityMode">
+                <option value="0" selected>0 - 关闭</option>
+                <option value="1">1 - 删除</option>
+                <option value="2">2 - 替换 *</option>
+              </select>
+            </div>
+            <div class="fg c4">
+              <label>EnableSpeakerRecognition</label>
+              <select id="offlineSpeakerRecognition">
+                <option value="" selected>服务端默认</option>
+                <option value="true">true - 开启</option>
+                <option value="false">false - 关闭</option>
+              </select>
+            </div>
+            <div class="fg c4">
+              <label>GroupIds</label>
+              <textarea id="offlineSpeakerGroupIds" rows="2" placeholder="可选，逗号或换行分隔；空表示 default"></textarea>
+            </div>
+            <div class="fg c4">
+              <label>SpeakerProfileIds</label>
+              <textarea id="offlineSpeakerProfileIds" rows="2" placeholder="可选，逗号或换行分隔；空表示匹配组内全部 active profile"></textarea>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-primary" id="createOfflineBtn">创建任务</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">浏览器上传音频</div>
+              <div class="card-desc">对应 <code>POST /api/asr/create_task_upload</code>，文件会保存到服务端 work 目录后创建任务</div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="fg c8">
+              <label>音频文件</label>
+              <input id="uploadFile" type="file" accept=".wav,.mp3,.m4a,.aac,.opus,.pcm,audio/*">
+            </div>
+            <div class="fg c4">
+              <label>上传状态</label>
+              <input id="uploadStatus" value="未选择文件" readonly>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-success" id="uploadCreateBtn">上传并创建任务</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">查询与下载</div>
+              <div class="card-desc">查询 <code>GET /api/asr/task_status</code>，下载 <code>GET /api/asr/task_result_download</code></div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="fg c6">
+              <label>TaskId</label>
+              <input id="offlineTaskId" placeholder="创建成功后自动回填">
+            </div>
+            <div class="fg c3">
+              <label>轮询间隔 (ms)</label>
+              <input id="offlinePollMs" type="number" value="3000">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-primary" id="queryOfflineBtn">查询状态</button>
+            <button class="btn-warn" id="togglePollBtn">开启自动轮询</button>
+            <button class="btn-danger" id="cancelTaskBtn">取消任务</button>
+            <button class="btn-ghost" id="downloadJsonBtn">下载 JSON</button>
+            <button class="btn-ghost" id="downloadTextBtn">下载文本</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title">任务日志</div></div>
+            <button class="btn-ghost" id="clearOfflineLogBtn">清空</button>
+          </div>
+          <div class="log-box" id="offlineLog"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-browser">
+        <h2 class="section-title">任务浏览器</h2>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">已完成任务浏览</div>
+              <div class="card-desc">列表使用 <code>GET /api/asr/task_list</code>，详情和音频使用 <code>/api/asr/task_result</code> 与 <code>/api/asr/task_audio</code></div>
+            </div>
+            <button class="btn-primary" id="refreshTaskListBtn">刷新列表</button>
+          </div>
+
+          <div class="form-grid">
+            <div class="fg c3">
+              <label>状态</label>
+              <select id="browserStatus">
+                <option value="succeeded" selected>已完成</option>
+                <option value="all">全部</option>
+                <option value="queued">排队中</option>
+                <option value="running">运行中</option>
+                <option value="failed">失败</option>
+                <option value="canceled">已取消</option>
+              </select>
+            </div>
+            <div class="fg c2">
+              <label>数量</label>
+              <input id="browserLimit" type="number" min="1" max="200" value="50">
+            </div>
+            <div class="fg c5">
+              <label>TaskId</label>
+              <input id="browserTaskId" placeholder="输入 TaskId 可直接加载">
+            </div>
+            <div class="fg c2" style="align-self:end;">
+              <button class="btn-ghost" id="loadBrowserTaskBtn" style="width:100%;">加载</button>
+            </div>
+          </div>
+
+          <div class="task-browser-layout" style="margin-top: 18px;">
+            <div class="task-list-pane">
+              <div class="task-list-head">
+                <span>任务列表</span>
+                <span id="browserListCount" class="mono">0</span>
+              </div>
+              <div class="task-list" id="browserTaskList"></div>
+              <div class="browser-status" id="browserListStatus">点击刷新列表加载已完成任务</div>
+            </div>
+
+            <div class="task-detail-pane">
+              <div id="browserEmpty" class="empty-state">选择一个任务后查看说话人时间轴和每段识别结果</div>
+              <div id="browserViewer" class="viewer-shell" hidden>
+                <div class="viewer-summary" id="browserSummary"></div>
+                <audio id="browserPlayer" controls style="width: 100%;"></audio>
+                <div class="timeline-controls">
+                  <label class="row" style="margin:0;">
+                    <span>缩放(px/sec)</span>
+                    <input id="browserScale" type="range" min="20" max="200" step="5" value="80">
+                    <span id="browserScaleVal" class="mono">80</span>
+                  </label>
+                  <span class="browser-status" id="browserViewerStatus"></span>
+                </div>
+                <div class="viewer-scroll" id="browserScroll">
+                  <div class="timeline-wrap" id="browserTimelineWrap">
+                    <canvas id="browserWave"></canvas>
+                    <canvas id="browserSegmentCanvas"></canvas>
+                    <div id="browserPlayhead" class="viewer-playhead"></div>
+                  </div>
+                </div>
+                <div class="speaker-legend" id="browserLegend"></div>
+                <div class="match-list" id="browserSpeakerMatches"></div>
+                <div class="segment-list" id="browserSegmentList"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-speakers">
+        <h2 class="section-title">声纹管理</h2>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Profile 管理</div>
+              <div class="card-desc">对应 <code>/api/speakers/create</code>、<code>/api/speakers/get</code>、<code>/api/speakers/list</code>、<code>/api/speakers/update</code>、<code>/api/speakers/delete</code></div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="fg c4">
+              <label>SpeakerProfileId</label>
+              <input id="speakerProfileId" placeholder="例如 spk_zhangsan；创建时可留空">
+            </div>
+            <div class="fg c4">
+              <label>SpeakerName</label>
+              <input id="speakerName" placeholder="显示名称">
+            </div>
+            <div class="fg c4">
+              <label>Status</label>
+              <select id="speakerStatus">
+                <option value="">不修改</option>
+                <option value="active">active</option>
+                <option value="disabled">disabled</option>
+              </select>
+            </div>
+            <div class="fg c12">
+              <label>Description</label>
+              <input id="speakerDescription" placeholder="可选描述">
+            </div>
+            <div class="fg c6">
+              <label>GroupId</label>
+              <input id="speakerGroupId" value="default" placeholder="不填则使用 default">
+            </div>
+            <div class="fg c6">
+              <label>GroupName</label>
+              <input id="speakerGroupName" placeholder="可选组名">
+            </div>
+            <div class="fg c3">
+              <label>List Status</label>
+              <select id="speakerListStatus">
+                <option value="active" selected>active</option>
+                <option value="disabled">disabled</option>
+                <option value="all">all</option>
+              </select>
+            </div>
+            <div class="fg c2">
+              <label>Limit</label>
+              <input id="speakerListLimit" type="number" min="1" max="200" value="50">
+            </div>
+            <div class="fg c2">
+              <label>Offset</label>
+              <input id="speakerListOffset" type="number" min="0" value="0">
+            </div>
+            <div class="fg c5" style="align-self:end;">
+              <label class="inline-check">
+                <input id="speakerHardDelete" type="checkbox">
+                HardDelete
+              </label>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-primary" id="createSpeakerBtn">创建 Profile</button>
+            <button class="btn-ghost" id="getSpeakerBtn">查询单个</button>
+            <button class="btn-ghost" id="listSpeakersBtn">列出 Profile</button>
+            <button class="btn-warn" id="updateSpeakerBtn">更新 Profile</button>
+            <button class="btn-danger" id="deleteSpeakerBtn">删除 Profile</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">注册声纹</div>
+              <div class="card-desc">上传使用 <code>/api/speakers/enroll_upload</code>，URL / 服务器本地路径使用 <code>/api/speakers/enroll</code></div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="fg c8">
+              <label>浏览器上传音频</label>
+              <input id="speakerEnrollFile" type="file" accept=".wav,.mp3,.m4a,.aac,.opus,.pcm,audio/*">
+            </div>
+            <div class="fg c4">
+              <label>上传状态</label>
+              <input id="speakerEnrollUploadStatus" value="未选择文件" readonly>
+            </div>
+            <div class="fg c3">
+              <label>AutoCreate</label>
+              <label class="inline-check">
+                <input id="speakerEnrollAutoCreate" type="checkbox" checked>
+                自动创建 Profile
+              </label>
+            </div>
+            <div class="fg c3">
+              <label>SourceType</label>
+              <select id="speakerEnrollSourceType">
+                <option value="0">0 - URL</option>
+                <option value="1">1 - 服务器本地路径</option>
+              </select>
+            </div>
+            <div class="fg c6">
+              <label>Url</label>
+              <input id="speakerEnrollUrl" placeholder="SourceType=0 时填写">
+            </div>
+            <div class="fg c12">
+              <label>Extra</label>
+              <input id="speakerEnrollExtra" placeholder="SourceType=1 时填写服务器上的绝对路径">
+            </div>
+            <div class="fg c8">
+              <label>EnrollmentId</label>
+              <input id="speakerEnrollmentId" placeholder="删除单条 enrollment 时填写">
+            </div>
+            <div class="fg c4" style="align-self:end;">
+              <button class="btn-danger" id="deleteSpeakerEnrollmentBtn" style="width:100%;">删除 Enrollment</button>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-success" id="uploadSpeakerEnrollBtn">上传并注册</button>
+            <button class="btn-primary" id="pathSpeakerEnrollBtn">URL / 本地路径注册</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Profile 列表</div>
+              <div class="card-desc">查询或注册成功后会自动更新这里</div>
+            </div>
+          </div>
+          <div class="profile-list" id="speakerProfilesList">
+            <div class="empty-state">点击“列出 Profile”加载声纹数据</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title">声纹日志</div></div>
+            <button class="btn-ghost" id="clearSpeakerLogBtn">清空</button>
+          </div>
+          <div class="log-box" id="speakerLog"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-hotwords">
+        <h2 class="section-title">热词库管理</h2>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">热词操作</div>
+              <div class="card-desc">对应 <code>/api/hotwords/*</code></div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="fg c12">
+              <label>HotwordId</label>
+              <input id="hotwordId" value="default">
+            </div>
+            <div class="fg c12">
+              <label>Content</label>
+              <textarea id="hotwordContent" placeholder="例如：广州,荔湾区,圆中园"></textarea>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-primary" id="upsertHwBtn">新增 / 更新</button>
+            <button class="btn-ghost" id="getHwBtn">查询单条</button>
+            <button class="btn-ghost" id="listHwBtn">列出全部</button>
+            <button class="btn-danger" id="deleteHwBtn">删除</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title">热词日志</div></div>
+            <button class="btn-ghost" id="clearHwLogBtn">清空</button>
+          </div>
+          <div class="log-box" id="hotwordLog"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-status">
+        <h2 class="section-title">系统状态</h2>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">路数状态</div>
+              <div class="card-desc">对应 <code>GET /api/system/route_status</code></div>
+            </div>
+            <button class="btn-primary" id="refreshStatusBtn">刷新</button>
+          </div>
+          <div class="kv-grid" id="routeKv"></div>
+          <div class="divider"></div>
+          <div class="log-box" id="routeJson"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">离线任务统计</div>
+              <div class="card-desc">对应 <code>GET /api/asr/task_stats</code></div>
+            </div>
+          </div>
+          <div class="kv-grid" id="taskStatsKv"></div>
+          <div class="divider"></div>
+          <div class="log-box" id="taskStatsJson"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-settings">
+        <h2 class="section-title">连接配置</h2>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">服务地址</div>
+              <div class="card-desc">页面由 FastAPI 服务返回时会自动使用当前 origin</div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="fg c8">
+              <label>HTTP Base URL</label>
+              <input id="httpBase" value="http://127.0.0.1:18080">
+            </div>
+            <div class="fg c2">
+              <label>HTTP Timeout (ms)</label>
+              <input id="httpTimeoutMs" type="number" value="30000">
+            </div>
+            <div class="fg c2">
+              <label>Log Level</label>
+              <select id="logLevel">
+                <option value="error">error</option>
+                <option value="info" selected>info</option>
+                <option value="debug">debug</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
