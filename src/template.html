@@ -695,7 +695,14 @@
           <div class="card-header">
             <div>
               <div class="card-title">服务地址</div>
-              <div class="card-desc">页面由 FastAPI 服务返回时会自动使用当前 origin</div>
+              <div class="card-desc">页面启动时会检测服务连接；未配置或连接失败会默认停留在这里</div>
+            </div>
+            <div class="status-bar connection-status">
+              <div class="chip warn" id="connectionStatusChip">
+                <span class="chip-dot"></span>
+                <span id="connectionStatusLabel">未检测</span>
+              </div>
+              <span class="stats-label" id="connectionStatusDetail">等待连接检测</span>
             </div>
           </div>
           <div class="form-grid">
@@ -721,6 +728,7 @@
             </div>
           </div>
           <div class="btn-row">
+            <button class="btn-primary" id="testConnectionBtn">测试连接</button>
             <button class="btn-ghost" id="syncWsBtn">按 HTTP 地址重置 WS URL</button>
           </div>
         </div>

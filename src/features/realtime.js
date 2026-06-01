@@ -1,4 +1,5 @@
 import { $, qsa } from '../core/dom.js';
+import { persistEndpointSettings } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
 import { esc, pretty, safeParse } from '../core/format.js';
 import { toast } from '../core/toast.js';
@@ -664,6 +665,7 @@ function syncWsUrlFromHttp() {
     url.pathname = '/api/realtime/ws';
     url.search = '';
     $('wsBase').value = url.toString();
+    persistEndpointSettings();
     toast('WS URL 已按 HTTP 地址重置', 'info');
   } catch (err) {
     toast(`HTTP Base URL 无效: ${err.message}`, 'error');

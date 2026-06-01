@@ -1,19 +1,107 @@
 import { $ } from './dom.js';
 import { pretty, safeParse, speakerQualitySummaryText } from './format.js';
 
+const STORAGE_KEYS = {
+  httpBase: 'yuyi-asr:http-base',
+  wsBase: 'yuyi-asr:ws-base',
+  timeoutMs: 'yuyi-asr:http-timeout-ms',
+  logLevel: 'yuyi-asr:log-level',
+};
+
+function storageGet(key) {
+  try {
+    return window.localStorage?.getItem(key) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    if (value) window.localStorage?.setItem(key, value);
+    else window.localStorage?.removeItem(key);
+  } catch (_) {
+    // localStorage can be blocked in private/file contexts; the console still works without persistence.
+  }
+}
+
 export function buildHttpUrl(path) {
   return $('httpBase').value.trim().replace(/\/+$/, '') + path;
 }
 
+function wsUrlFromHttpBase(base) {
+  const url = new URL(base);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.pathname = '/api/realtime/ws';
+  url.search = '';
+  return url.toString();
+}
+
 export function initializeEndpointDefaults() {
+  const savedHttpBase = storageGet(STORAGE_KEYS.httpBase);
+  const savedWsBase = storageGet(STORAGE_KEYS.wsBase);
+  const savedTimeoutMs = storageGet(STORAGE_KEYS.timeoutMs);
+  const savedLogLevel = storageGet(STORAGE_KEYS.logLevel);
+  if (savedHttpBase) {
+    $('httpBase').value = savedHttpBase;
+    if ($('wsBase')) {
+      try {
+        $('wsBase').value = savedWsBase || wsUrlFromHttpBase(savedHttpBase);
+      } catch (_) {
+        $('wsBase').value = savedWsBase || '';
+      }
+    }
+    if (savedTimeoutMs) $('httpTimeoutMs').value = savedTimeoutMs;
+    if (savedLogLevel) $('logLevel').value = savedLogLevel;
+    return;
+  }
   if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') return;
   $('httpBase').value = window.location.origin;
   if ($('wsBase')) {
-    const url = new URL(window.location.origin);
-    url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    url.pathname = '/api/realtime/ws';
-    url.search = '';
-    $('wsBase').value = url.toString();
+    $('wsBase').value = wsUrlFromHttpBase(window.location.origin);
+  }
+}
+
+export function persistEndpointSettings() {
+  storageSet(STORAGE_KEYS.httpBase, $('httpBase')?.value?.trim() || '');
+  storageSet(STORAGE_KEYS.wsBase, $('wsBase')?.value?.trim() || '');
+  storageSet(STORAGE_KEYS.timeoutMs, $('httpTimeoutMs')?.value?.trim() || '');
+  storageSet(STORAGE_KEYS.logLevel, $('logLevel')?.value || '');
+}
+
+export async function probeServiceConnection({ timeoutMs = 2500 } = {}) {
+  const base = $('httpBase')?.value?.trim();
+  if (!base) {
+    return { ok: false, message: 'HTTP Base URL 未配置' };
+  }
+  try {
+    new URL(base);
+  } catch (err) {
+    return { ok: false, message: `HTTP Base URL 无效: ${err.message}` };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${base.replace(/\/+$/, '')}/api/system/route_status`, {
+      cache: 'no-store',
+      signal: ctrl.signal,
+    });
+    const text = await res.text();
+    const json = safeParse(text);
+    const err = json?.Response?.Error;
+    if (!res.ok || err) {
+      return {
+        ok: false,
+        status: res.status,
+        message: err?.Message || `HTTP ${res.status}`,
+      };
+    }
+    return { ok: true, status: res.status, message: '连接正常' };
+  } catch (err) {
+    const message = err.name === 'AbortError' ? '连接检测超时' : err.message;
+    return { ok: false, message };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

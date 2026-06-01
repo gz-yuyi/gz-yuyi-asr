@@ -1,6 +1,7 @@
 import './styles.css';
 import template from './template.html?raw';
 import { initializeEndpointDefaults } from './core/api.js';
+import { registerConnectionSettings, routeInitialPanelByConnection } from './features/connection.js';
 import { registerHotwords } from './features/hotwords.js';
 import { registerOfflineTasks } from './features/offline-tasks.js';
 import { registerRealtime } from './features/realtime.js';
@@ -19,10 +20,12 @@ function bootstrap() {
   const speakers = registerSpeakers();
   registerHotwords();
   registerStatus();
+  registerConnectionSettings();
   registerNavigation({
     refreshTaskList: browser.refreshTaskList,
     listSpeakerProfiles: speakers.listSpeakerProfiles,
   });
+  routeInitialPanelByConnection();
 }
 
 bootstrap();
