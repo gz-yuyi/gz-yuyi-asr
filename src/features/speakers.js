@@ -8,6 +8,22 @@ function speakerProfileId() {
   return $('speakerProfileId').value.trim();
 }
 
+function setIfElement(id, value) {
+  const el = $(id);
+  if (el) el.value = value || '';
+}
+
+function fillProfileIdentity(profileId, speakerName) {
+  if (profileId) {
+    setIfElement('speakerProfileId', profileId);
+    setIfElement('speakerEnrollProfileId', profileId);
+  }
+  if (speakerName) {
+    setIfElement('speakerName', speakerName);
+    setIfElement('speakerEnrollName', speakerName);
+  }
+}
+
 function speakerBasePayload() {
   const payload = {};
   const profileId = speakerProfileId();
@@ -41,8 +57,7 @@ function profileFromResponse(res) {
 
 function fillSpeakerForm(profile) {
   if (!profile) return;
-  $('speakerProfileId').value = profile.SpeakerProfileId || $('speakerProfileId').value;
-  $('speakerName').value = profile.SpeakerName || $('speakerName').value;
+  fillProfileIdentity(profile.SpeakerProfileId, profile.SpeakerName);
   $('speakerDescription').value = profile.Description || '';
   $('speakerStatus').value = profile.Status || '';
   const groups = Array.isArray(profile.Groups) ? profile.Groups : [];
@@ -226,17 +241,40 @@ async function deleteSpeakerProfile() {
 }
 
 function speakerEnrollPayload() {
-  const base = speakerBasePayload();
-  base.AutoCreate = $('speakerEnrollAutoCreate').checked;
-  return base;
+  const payload = {};
+  const profileId = $('speakerEnrollProfileId').value.trim() || speakerProfileId();
+  const speakerName = $('speakerEnrollName').value.trim() || $('speakerName').value.trim();
+  const description = $('speakerDescription').value.trim();
+  const groupId = $('speakerGroupId').value.trim();
+  const groupName = $('speakerGroupName').value.trim();
+  if (profileId) payload.SpeakerProfileId = profileId;
+  if (speakerName) payload.SpeakerName = speakerName;
+  if (description) payload.Description = description;
+  if (groupId) payload.GroupId = groupId;
+  if (groupName) payload.GroupName = groupName;
+  payload.AutoCreate = $('speakerEnrollAutoCreate').checked;
+  return payload;
+}
+
+function validateSpeakerEnrollmentPayload(payload) {
+  if (!payload.SpeakerProfileId) {
+    toast('请填写注册用 SpeakerProfileId', 'error');
+    $('speakerEnrollProfileId').focus();
+    return false;
+  }
+  if (payload.AutoCreate && !payload.SpeakerName) {
+    toast('AutoCreate 开启时请填写 SpeakerName', 'error');
+    $('speakerEnrollName').focus();
+    return false;
+  }
+  return true;
 }
 
 function rememberEnrollment(res) {
   const data = dataOrNull(res);
   const enrollmentId = data?.EnrollmentId;
   if (enrollmentId) $('speakerEnrollmentId').value = enrollmentId;
-  if (data?.SpeakerProfileId) $('speakerProfileId').value = data.SpeakerProfileId;
-  if (data?.SpeakerName) $('speakerName').value = data.SpeakerName;
+  fillProfileIdentity(data?.SpeakerProfileId, data?.SpeakerName);
 }
 
 function updateSpeakerEnrollUploadStatus() {
@@ -251,10 +289,10 @@ async function uploadSpeakerEnrollment() {
     toast('请先选择注册音频', 'error');
     return;
   }
-  if (!base.SpeakerProfileId) {
-    toast('请填写 SpeakerProfileId', 'error');
+  if (!validateSpeakerEnrollmentPayload(base)) {
     return;
   }
+  fillProfileIdentity(base.SpeakerProfileId, base.SpeakerName);
   const query = buildQuery({
     SpeakerProfileId: base.SpeakerProfileId,
     SpeakerName: base.SpeakerName,
@@ -290,10 +328,10 @@ async function pathSpeakerEnrollment() {
   const extra = $('speakerEnrollExtra').value.trim();
   if (url) body.Url = url;
   if (extra) body.Extra = extra;
-  if (!body.SpeakerProfileId) {
-    toast('请填写 SpeakerProfileId', 'error');
+  if (!validateSpeakerEnrollmentPayload(body)) {
     return;
   }
+  fillProfileIdentity(body.SpeakerProfileId, body.SpeakerName);
   if (body.SourceType === 0 && !body.Url) {
     toast('SourceType=0 时请填写 Url', 'error');
     return;

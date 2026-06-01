@@ -528,6 +528,21 @@
             </div>
           </div>
           <div class="form-grid">
+            <div class="fg c4">
+              <label>SpeakerProfileId</label>
+              <input id="speakerEnrollProfileId" placeholder="注册到哪个 Profile">
+            </div>
+            <div class="fg c4">
+              <label>SpeakerName</label>
+              <input id="speakerEnrollName" placeholder="AutoCreate 时必填">
+            </div>
+            <div class="fg c4">
+              <label>AutoCreate</label>
+              <label class="inline-check">
+                <input id="speakerEnrollAutoCreate" type="checkbox" checked>
+                自动创建 Profile
+              </label>
+            </div>
             <div class="fg c8">
               <label>浏览器上传音频</label>
               <input id="speakerEnrollFile" type="file" accept=".wav,.mp3,.m4a,.aac,.opus,.pcm,audio/*">
@@ -535,13 +550,6 @@
             <div class="fg c4">
               <label>上传状态</label>
               <input id="speakerEnrollUploadStatus" value="未选择文件" readonly>
-            </div>
-            <div class="fg c3">
-              <label>AutoCreate</label>
-              <label class="inline-check">
-                <input id="speakerEnrollAutoCreate" type="checkbox" checked>
-                自动创建 Profile
-              </label>
             </div>
             <div class="fg c3">
               <label>SourceType</label>
