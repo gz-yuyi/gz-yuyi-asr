@@ -2,7 +2,7 @@
 
 Vite modularized version of `test-console.html`.
 
-Online console: https://gz-yuyi.github.io/gz-yuyi-asr/test-console.html
+Online console: https://gz-yuyi.github.io/gz-yuyi-asr/
 
 ## Commands
 
