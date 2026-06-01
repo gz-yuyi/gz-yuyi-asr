@@ -4,11 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "dev": "vitepress dev docs --host 0.0.0.0",
+    "dev:console": "vite --host 0.0.0.0",
+    "dev:docs": "vitepress dev docs --host 0.0.0.0",
+    "build": "npm run build:console && npm run build:docs && node scripts/prepare-pages.js",
+    "build:console": "vite build",
+    "build:docs": "vitepress build docs",
+    "preview": "vitepress preview docs --host 0.0.0.0",
+    "preview:console": "vite preview --host 0.0.0.0"
   },
   "devDependencies": {
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitepress": "^1.6.4"
   }
 }

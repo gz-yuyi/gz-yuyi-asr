@@ -1,6 +1,6 @@
 # VoxFlow Offline Test Console
 
-Vite modularized version of `test-console.html`.
+VitePress documentation site plus a Vite modularized version of `test-console.html`.
 
 Online console: https://gz-yuyi.github.io/gz-yuyi-asr/
 
@@ -8,10 +8,11 @@ Online console: https://gz-yuyi.github.io/gz-yuyi-asr/
 
 ```bash
 npm install
-npm run dev
-npm run build
+npm run dev          # documentation site
+npm run dev:console  # test console
+npm run build        # documentation + /console/ GitHub Pages payload
 ```
 
-Dev server entry: `http://localhost:5173/test-console.html`.
+Console dev server entry: `http://localhost:5173/test-console.html`.
 
-`npm run build` emits a standalone `dist/test-console.html` file with CSS and JavaScript inlined.
+`npm run build` emits `dist-pages/` for GitHub Pages. The docs are served from `/`, and the standalone console is served from `/console/`.
