@@ -1,0 +1,90 @@
+name: Release console HTML
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-console-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-console:
+    name: Build and pre-release console
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build standalone console
+        run: npm run build:console
+
+      - name: Prepare release asset
+        id: release_meta
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          tag="console-${short_sha}"
+          asset="yuyi-asr-test-console-${short_sha}.html"
+
+          cp dist/test-console.html "${asset}"
+
+          {
+            echo "tag=${tag}"
+            echo "asset=${asset}"
+            echo "short_sha=${short_sha}"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "语义科技ASR 测试控制台"
+            echo
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Standalone HTML: ${asset}"
+            echo
+            echo "下载 HTML 后可避开 GitHub Pages HTTPS 页面访问 HTTP API 的 mixed-content 限制。"
+            echo
+            echo "若直接双击打开时浏览器因 CORS 拦截请求，可在下载目录运行本地 HTTP 服务后访问，并在后端允许该本地来源："
+            echo
+            echo '```bash'
+            echo 'python3 -m http.server 5177'
+            echo '```'
+          } > release-notes.md
+
+      - name: Create or update pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release_meta.outputs.tag }}
+          ASSET: ${{ steps.release_meta.outputs.asset }}
+          SHORT_SHA: ${{ steps.release_meta.outputs.short_sha }}
+        shell: bash
+        run: |
+          title="Console HTML ${SHORT_SHA}"
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" \
+              --title "${title}" \
+              --notes-file release-notes.md \
+              --prerelease
+            gh release upload "${TAG}" "${ASSET}" --clobber
+          else
+            gh release create "${TAG}" "${ASSET}" \
+              --target "${GITHUB_SHA}" \
+              --title "${title}" \
+              --notes-file release-notes.md \
+              --prerelease
+          fi
