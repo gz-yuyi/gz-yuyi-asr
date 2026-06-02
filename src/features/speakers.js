@@ -56,6 +56,7 @@ function setSpeakerEditorMode(mode) {
   $('createSpeakerBtn').classList.toggle('hidden', !isCreate);
   $('updateSpeakerBtn').classList.toggle('hidden', isCreate);
   $('deleteSpeakerBtn').classList.toggle('hidden', isCreate);
+  $('hardDeleteSpeakerBtn').classList.toggle('hidden', isCreate);
   $('speakerEditorHint').textContent = isCreate
     ? '新增人员时只需要填写姓名；人员 ID 可留空由服务端生成'
     : '正在编辑当前人员；人员 ID 保持只读，避免误改身份';
@@ -73,7 +74,6 @@ function startCreateSpeakerProfile() {
   setIfElement('speakerEnrollProfileId', '');
   setIfElement('speakerEnrollName', '');
   $('speakerEnrollAutoCreate').checked = false;
-  $('speakerHardDelete').checked = false;
   updateSpeakerContext();
 }
 
@@ -172,7 +172,6 @@ function renderSpeakerProfiles(items) {
               <button class="btn-primary open-profile-btn" data-profile-id="${esc(profileId)}">查看详情</button>
               <button class="btn-success enroll-profile-btn" data-profile-id="${esc(profileId)}">注册声纹</button>
               <button class="btn-ghost toggle-profile-btn" data-profile-id="${esc(profileId)}" data-next-status="${esc(nextStatus)}">${toggleLabel}</button>
-              <button class="btn-danger delete-profile-item-btn" data-profile-id="${esc(profileId)}">删除</button>
             </div>
             ${renderEnrollmentList(enrollments, profileId)}
           </div>
@@ -190,9 +189,6 @@ function renderSpeakerProfiles(items) {
   });
   qsa('#speakerProfilesList .toggle-profile-btn').forEach(btn => {
     btn.addEventListener('click', () => quickUpdateSpeakerStatus(btn.dataset.profileId, btn.dataset.nextStatus));
-  });
-  qsa('#speakerProfilesList .delete-profile-item-btn').forEach(btn => {
-    btn.addEventListener('click', () => deleteSpeakerProfile(btn.dataset.profileId));
   });
   qsa('#speakerProfilesList .delete-enrollment-item-btn').forEach(btn => {
     btn.addEventListener('click', () => deleteSpeakerEnrollment(btn.dataset.enrollmentId, btn.dataset.profileId));
@@ -312,28 +308,38 @@ async function quickUpdateSpeakerStatus(profileId, status) {
   }
 }
 
-async function deleteSpeakerProfile(profileId = speakerProfileId()) {
+async function disableSpeakerProfile(profileId = speakerProfileId()) {
   const safeId = String(profileId || '').trim();
   if (!safeId) {
     toast('请先选择人员', 'error');
     return;
   }
-  if (!window.confirm(`确认删除人员 ${safeId}？`)) return;
+  if (!window.confirm(`确认禁用人员 ${safeId}？禁用后默认列表不再显示，但仍可按 ID 查询和重新启用。`)) return;
+  await quickUpdateSpeakerStatus(safeId, 'disabled');
+}
+
+async function hardDeleteSpeakerProfile(profileId = speakerProfileId()) {
+  const safeId = String(profileId || '').trim();
+  if (!safeId) {
+    toast('请先选择人员', 'error');
+    return;
+  }
+  if (!window.confirm(`确认物理删除人员 ${safeId}？这会删除人员和关联声纹样本，操作不可恢复。`)) return;
   try {
     const res = await httpJson('/api/speakers/delete', {
       method: 'POST',
       body: {
         SpeakerProfileId: safeId,
-        HardDelete: $('speakerHardDelete').checked,
+        HardDelete: true,
       },
     });
-    logSpeakerResponse(res, '删除 Profile');
-    toast('删除请求已完成', 'success');
+    logSpeakerResponse(res, '物理删除 Profile');
+    toast('人员已物理删除', 'success');
     if (speakerProfileId() === safeId) startCreateSpeakerProfile();
     await listSpeakerProfiles();
   } catch (err) {
-    appendLog($('speakerLog'), `删除失败: ${err.message}`, 'log-err', 'error');
-    toast(`删除失败: ${err.message}`, 'error');
+    appendLog($('speakerLog'), `物理删除失败: ${err.message}`, 'log-err', 'error');
+    toast(`物理删除失败: ${err.message}`, 'error');
   }
 }
 
@@ -481,7 +487,8 @@ export function registerSpeakers() {
   $('getSpeakerBtn').addEventListener('click', () => loadSpeakerProfile());
   $('listSpeakersBtn').addEventListener('click', listSpeakerProfiles);
   $('updateSpeakerBtn').addEventListener('click', updateSpeakerProfile);
-  $('deleteSpeakerBtn').addEventListener('click', () => deleteSpeakerProfile());
+  $('deleteSpeakerBtn').addEventListener('click', () => disableSpeakerProfile());
+  $('hardDeleteSpeakerBtn').addEventListener('click', () => hardDeleteSpeakerProfile());
   $('uploadSpeakerEnrollBtn').addEventListener('click', uploadSpeakerEnrollment);
   $('pathSpeakerEnrollBtn').addEventListener('click', pathSpeakerEnrollment);
   $('deleteSpeakerEnrollmentBtn').addEventListener('click', () => deleteSpeakerEnrollment());

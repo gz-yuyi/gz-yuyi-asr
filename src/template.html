@@ -540,18 +540,16 @@
             </div>
             <div class="fg c12">
               <details class="advanced-panel">
-                <summary>删除选项</summary>
-                <label class="inline-check">
-                  <input id="speakerHardDelete" type="checkbox">
-                  物理删除人员和关联数据
-                </label>
+                <summary>危险操作</summary>
+                <div class="card-desc">物理删除会移除人员和关联声纹样本；禁用人员只会把状态改为 disabled。</div>
+                <button class="btn-danger hidden" id="hardDeleteSpeakerBtn" type="button">物理删除人员</button>
               </details>
             </div>
           </div>
           <div class="btn-row">
             <button class="btn-success" id="createSpeakerBtn">创建人员</button>
             <button class="btn-primary hidden" id="updateSpeakerBtn">保存修改</button>
-            <button class="btn-danger hidden" id="deleteSpeakerBtn">删除人员</button>
+            <button class="btn-warn hidden" id="deleteSpeakerBtn">禁用人员</button>
           </div>
         </div>
 
