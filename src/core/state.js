@@ -8,6 +8,7 @@ export const state = {
     speakerMatches: [],
     audioBuffer: null,
     audioUrl: null,
+    audioPlayable: false,
     pxPerSec: 80,
     playSegment: null,
   },

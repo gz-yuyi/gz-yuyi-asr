@@ -1,7 +1,7 @@
 import { BROWSER_MAX_CANVAS_WIDTH, BROWSER_PALETTE } from '../core/constants.js';
 import { $, qsa } from '../core/dom.js';
 import { state } from '../core/state.js';
-import { apiErrorMessage, dataOrNull, httpJson, requestBlob } from '../core/api.js';
+import { apiErrorMessage, buildHttpUrl, dataOrNull, httpJson, requestBlob } from '../core/api.js';
 import { buildQuery, esc, formatBrowserDuration, formatBrowserTime, formatMatchScore } from '../core/format.js';
 import { toast } from '../core/toast.js';
 
@@ -116,20 +116,25 @@ function clearBrowserAudio() {
   if (state.browser.audioUrl) URL.revokeObjectURL(state.browser.audioUrl);
   state.browser.audioUrl = null;
   state.browser.audioBuffer = null;
+  state.browser.audioPlayable = false;
   state.browser.playSegment = null;
   const player = $('browserPlayer');
   player.pause();
+  player.dataset.taskId = '';
   player.removeAttribute('src');
   player.load();
 }
 
 async function loadBrowserAudio(taskId) {
   clearBrowserAudio();
-  const blob = await requestBlob(`/api/asr/task_audio?TaskId=${encodeURIComponent(taskId)}`);
-  const url = URL.createObjectURL(blob);
-  state.browser.audioUrl = url;
-  $('browserPlayer').src = url;
+  const audioPath = `/api/asr/task_audio?TaskId=${encodeURIComponent(taskId)}`;
+  const player = $('browserPlayer');
+  player.dataset.taskId = String(taskId);
+  player.src = buildHttpUrl(audioPath);
+  player.load();
 
+  const blob = await requestBlob(audioPath);
+  if (!blob.size) throw new Error('音频响应为空');
   const arrayBuffer = await blob.arrayBuffer();
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   const ctx = new AudioContext();
@@ -420,10 +425,12 @@ async function loadBrowserTask(taskId) {
     renderBrowserSegments();
 
     try {
+      setBrowserViewerStatus('加载音频...');
       await loadBrowserAudio(safeTaskId);
       setBrowserViewerStatus(`已加载 ${state.browser.segments.length} 段识别结果`);
     } catch (audioErr) {
-      setBrowserViewerStatus(`音频不可用: ${audioErr.message}`);
+      const prefix = state.browser.audioPlayable ? '音频可试听，波形不可用' : '播放器已直连音频接口，波形暂不可用';
+      setBrowserViewerStatus(`${prefix}: ${audioErr.message}`);
     }
     drawBrowserWaveform();
   } catch (err) {
@@ -467,6 +474,22 @@ export function registerTaskBrowser() {
   $('browserPlayer').addEventListener('timeupdate', updateBrowserPlayhead);
   $('browserPlayer').addEventListener('seeked', updateBrowserPlayhead);
   $('browserPlayer').addEventListener('loadedmetadata', updateBrowserPlayhead);
+  $('browserPlayer').addEventListener('canplay', () => {
+    state.browser.audioPlayable = true;
+    setBrowserViewerStatus(`已加载 ${state.browser.segments.length} 段识别结果，音频可试听`);
+  });
+  $('browserPlayer').addEventListener('error', () => {
+    const player = $('browserPlayer');
+    if (!player.getAttribute('src')) return;
+    const messages = {
+      1: '加载被取消',
+      2: '网络错误',
+      3: '音频解码失败',
+      4: '音频格式或地址不支持',
+    };
+    const message = messages[player.error?.code] || '未知错误';
+    setBrowserViewerStatus(`音频加载失败: ${message}`);
+  });
   $('browserScroll').addEventListener('click', seekFromTimelineClick);
 
   return { refreshTaskList };
