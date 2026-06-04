@@ -119,6 +119,7 @@
     }
     button:hover { filter: brightness(1.08); }
     button:disabled { opacity: .45; cursor: not-allowed; }
+    .full-width { width: 100%; }
     .btn-primary { background: var(--blue); }
     .btn-primary:hover { background: var(--blue-2); }
     .btn-success { background: #16a34a; }
@@ -526,7 +527,7 @@
     }
     .segment-row {
       display: grid;
-      grid-template-columns: 118px 150px minmax(0, 1fr) auto;
+      grid-template-columns: 118px minmax(130px, 220px) minmax(0, 1fr) auto;
       gap: 10px;
       align-items: start;
       border: 1px solid var(--border);
@@ -542,6 +543,7 @@
       white-space: nowrap;
     }
     .seg-text {
+      min-width: 0;
       color: var(--text);
       line-height: 1.5;
       overflow-wrap: anywhere;
@@ -555,17 +557,21 @@
       display: grid;
       gap: 4px;
       min-width: 0;
+      overflow-wrap: anywhere;
     }
     .speaker-name {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 6px;
       min-width: 0;
       color: var(--muted);
       font-family: var(--mono);
       font-size: 12px;
-      white-space: nowrap;
+      line-height: 1.35;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
+    .speaker-name .swatch { margin-top: 2px; }
     .speaker-match {
       color: var(--subtle);
       font-size: 12px;
@@ -639,6 +645,40 @@
       margin: 0;
     }
     .inline-check input { width: auto; }
+    .hotword-list {
+      display: grid;
+      gap: 8px;
+      max-height: 420px;
+      overflow: auto;
+    }
+    .hotword-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 12px;
+    }
+    .hotword-main { min-width: 0; }
+    .hotword-title {
+      font-family: var(--mono);
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+    .hotword-content {
+      margin-top: 6px;
+      color: var(--muted);
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+    .hotword-meta {
+      margin-top: 6px;
+      color: var(--subtle);
+      font-size: 12px;
+      font-family: var(--mono);
+    }
     .empty-state {
       color: var(--subtle);
       min-height: 180px;
@@ -649,6 +689,7 @@
       border-radius: var(--radius);
       background: var(--card);
     }
+    .compact-empty { min-height: 96px; }
 
     .log-box {
       min-height: 180px;
@@ -702,6 +743,7 @@
       .task-browser-layout { grid-template-columns: 1fr; }
       .viewer-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .segment-row { grid-template-columns: 1fr; }
+      .hotword-item { grid-template-columns: 1fr; }
       .enrollment-item { grid-template-columns: 1fr; }
       .seg-play { width: max-content; }
     }

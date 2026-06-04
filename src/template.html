@@ -263,6 +263,15 @@
               <input id="offlineCallbackUrl" placeholder="可选回调地址">
             </div>
             <div class="fg c6">
+              <label>热词选项</label>
+              <select id="offlineHotwordSelect">
+                <option value="">未加载热词</option>
+              </select>
+            </div>
+            <div class="fg c6" style="align-self:end;">
+              <button class="btn-ghost full-width" id="refreshOfflineHotwordsBtn" type="button">刷新热词</button>
+            </div>
+            <div class="fg c6">
               <label>HotwordId</label>
               <input id="offlineHotwordId" value="default">
             </div>
@@ -649,6 +658,17 @@
             <button class="btn-ghost" id="getHwBtn">查询单条</button>
             <button class="btn-ghost" id="listHwBtn">列出全部</button>
             <button class="btn-danger" id="deleteHwBtn">删除</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">热词列表</div>
+              <div class="card-desc" id="hotwordListStatus">点击“列出全部”加载热词数据</div>
+            </div>
+          </div>
+          <div class="hotword-list" id="hotwordListPanel">
+            <div class="empty-state">暂无热词数据</div>
           </div>
         </div>
         <div class="card">

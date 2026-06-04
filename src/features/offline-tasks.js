@@ -2,8 +2,50 @@ import { $ } from '../core/dom.js';
 import { state } from '../core/state.js';
 import { httpBinary, httpJson, dataOrNull, downloadFile, summarizeHttpResponse } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
-import { buildQuery, parseListInput, pretty } from '../core/format.js';
+import { buildQuery, esc, parseListInput, pretty } from '../core/format.js';
 import { toast } from '../core/toast.js';
+import { refreshHotwordList } from './hotwords.js';
+
+function currentHotwordItems() {
+  return state.hotwords.items || [];
+}
+
+function renderOfflineHotwordOptions() {
+  const select = $('offlineHotwordSelect');
+  if (!select) return;
+  const currentId = $('offlineHotwordId').value.trim();
+  const items = currentHotwordItems();
+  if (!items.length) {
+    select.innerHTML = '<option value="">未加载热词</option>';
+    return;
+  }
+  const selectedExists = items.some(item => item.HotwordId === currentId);
+  select.innerHTML = [
+    `<option value="">${selectedExists ? '手动输入' : '请选择热词'}</option>`,
+    ...items.map(item => {
+      const label = item.Content ? `${item.HotwordId} - ${item.Content}` : item.HotwordId;
+      return `<option value="${esc(item.HotwordId)}">${esc(label)}</option>`;
+    }),
+  ].join('');
+  select.value = selectedExists ? currentId : '';
+}
+
+function applyOfflineHotword(item) {
+  if (!item) return;
+  $('offlineHotwordId').value = item.HotwordId;
+  $('offlineContext').value = item.Content || '';
+  renderOfflineHotwordOptions();
+}
+
+async function refreshOfflineHotwords() {
+  try {
+    const items = await refreshHotwordList({ log: false, toastResult: false });
+    renderOfflineHotwordOptions();
+    toast(`已加载 ${items.length} 条热词`, 'success');
+  } catch (err) {
+    toast(`热词加载失败: ${err.message}`, 'error');
+  }
+}
 
 function speakerRecognitionValue() {
   const value = $('offlineSpeakerRecognition').value;
@@ -175,6 +217,17 @@ async function downloadTask(format) {
 }
 
 export function registerOfflineTasks() {
+  renderOfflineHotwordOptions();
+  $('offlineHotwordSelect').addEventListener('change', () => {
+    const item = currentHotwordItems().find(entry => entry.HotwordId === $('offlineHotwordSelect').value);
+    applyOfflineHotword(item);
+  });
+  $('offlineHotwordId').addEventListener('input', renderOfflineHotwordOptions);
+  $('refreshOfflineHotwordsBtn').addEventListener('click', refreshOfflineHotwords);
+  document.addEventListener('hotwords:updated', renderOfflineHotwordOptions);
+  document.addEventListener('hotword:selected', event => {
+    applyOfflineHotword(event.detail?.item);
+  });
   $('createOfflineBtn').addEventListener('click', createOfflineTask);
   $('uploadFile').addEventListener('change', updateUploadStatus);
   $('uploadCreateBtn').addEventListener('click', uploadAndCreateTask);

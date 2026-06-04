@@ -59,6 +59,12 @@ function setBrowserViewerStatus(message) {
   $('browserViewerStatus').textContent = message || '';
 }
 
+function audioFetchMessage(error) {
+  if (error?.name === 'AbortError') return '请求超时';
+  if (String(error?.message || '').includes('Failed to fetch')) return '浏览器 fetch 无法读取音频响应';
+  return error?.message || '未知错误';
+}
+
 function renderTaskList() {
   const items = state.browser.tasks;
   $('browserListCount').textContent = String(items.length);
@@ -429,8 +435,8 @@ async function loadBrowserTask(taskId) {
       await loadBrowserAudio(safeTaskId);
       setBrowserViewerStatus(`已加载 ${state.browser.segments.length} 段识别结果`);
     } catch (audioErr) {
-      const prefix = state.browser.audioPlayable ? '音频可试听，波形不可用' : '播放器已直连音频接口，波形暂不可用';
-      setBrowserViewerStatus(`${prefix}: ${audioErr.message}`);
+      const prefix = state.browser.audioPlayable ? '音频可试听，波形不可用' : '播放器已直连音频接口，等待浏览器加载';
+      setBrowserViewerStatus(`${prefix}: ${audioFetchMessage(audioErr)}`);
     }
     drawBrowserWaveform();
   } catch (err) {

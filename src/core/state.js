@@ -1,5 +1,9 @@
 export const state = {
   pollTimer: null,
+  hotwords: {
+    items: [],
+    loaded: false,
+  },
   browser: {
     tasks: [],
     selectedTaskId: null,
