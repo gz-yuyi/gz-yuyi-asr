@@ -19,6 +19,7 @@
 - `Streaming VAD` 是唯一切段来源
 - 一旦片段闭合，`segment_id / start_ms / end_ms` 视为稳定，不再重新切段
 - 实时链路优先返回低延迟文本
+- 闭段修正是可选能力，由 `refine_mode` 控制，不强制同时启用 ASR 精修和 speaker refine
 - 后续可以对同一 `segment_id` 发更高 `revision` 的修正结果
 - 客户端只保留同一 `segment_id` 的最大 `revision`
 
@@ -51,7 +52,8 @@
 - 压缩格式当前按“每个二进制帧是可独立解码的音频块”处理
 - 若未配置 `streaming_asr`，实时文本仍退化为“闭段后一次性输出”
 - 配置 `streaming_asr` 后，会在活动段内先发 `source=streaming` 的低延迟草稿
-- `qwen3-asr` 当前保留为“VAD 闭段 + offline recognizer”的离线精修层
+- 闭段 `offline_asr` 精修和 speaker refine 由 `refine_mode` 控制；默认使用 `speaker_only`，避免实时草稿和闭段精修对所有片段重复推理
+- 若服务端配置了支持流式的 `qwen3-asr` 后端，可作为实时草稿来源；未配置时仍可作为闭段精修后端
 - speaker refine 基于 embedding 与增量/周期聚类
 - `hotword_id` 已支持查本地 SQLite 热词库；`A3_vllm` / `A3_llamacpp` 会动态映射到 `prompt`，`asr-offline-a3` 会在启动时加载全局静态热词
 - `context` 已支持透传到 `A3_vllm` / `A3_llamacpp`，会映射到 `/v1/audio/transcriptions` 的 `prompt`
@@ -63,10 +65,14 @@
 |---|---|---:|---|---|---|
 | `hotword_id` | string | 否 | `default` | 热词表 ID | 当前会先查本地 SQLite 热词库；`A3_vllm` / `A3_llamacpp` 动态生效，`asr-offline-a3` 启动后静态生效（更新需重启） |
 | `context` | string | 否 | 空 | 识别上下文提示 | 当前对 `A3_vllm` / `A3_llamacpp` 生效，会映射为 `prompt` |
+| `refine_mode` | string | 否 | `speaker_only` | 闭段修正策略：`none` / `speaker_only` / `asr_only` / `all` | 协议标准；服务端应按该参数决定是否发送 `source=offline_asr` 和 `source=speaker_refine` 修正 |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 | 已实现 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 | 已实现 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用 speaker refine | 已实现 |
 | `speaker_num` | int | 否 | 空 | 指定说话人数 | 已实现 |
+| `enable_speaker_recognition` | bool | 否 | `false` | 是否启用已注册声纹识别 | 协议标准；启用后可在 `TranscriptUpdate` 中返回注册声纹匹配字段 |
+| `group_ids` | string | 否 | `default` | 限定注册声纹匹配的声纹组 ID，多个用英文逗号分隔 | 协议标准；不传或为空时使用默认组 |
+| `speaker_profile_ids` | string | 否 | 空 | 限定注册声纹匹配的人员 ID，多个用英文逗号分隔 | 协议标准；不传或为空时匹配指定组内全部启用声纹 |
 | `audio_encoding` | string | 否 | `pcm_s16le` | 实时音频编码 | 已实现；`wav/mp3/aac/m4a/opus` 需 FFmpeg 构建 |
 | `sample_rate` | int | 否 | `16000` | 采样率 | `pcm_s16le` 时必须是 `16000`；压缩格式由解码器统一转到 `16k` |
 | `number_normalization_mode` | int | 否 | `1` | 数字转换模式：`0/1/3` | 已实现；按会话参数控制 |
@@ -76,7 +82,7 @@
 示例：
 
 ```text
-ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&sample_rate=16000&number_normalization_mode=1
+ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&refine_mode=speaker_only&vad_threshold=0.25&sample_rate=16000&number_normalization_mode=1
 ```
 
 ## 5. 客户端发送规范
@@ -110,7 +116,8 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
 - `stop`
   - 结束当前会话
   - 冲刷尾部数据
-  - 必要时先做最终 speaker refine，再发 `SessionCompleted`
+  - 按 `refine_mode` 决定是否补闭段 ASR 精修和 speaker refine
+  - 必要时先做最终闭段修正，再发 `SessionCompleted`
 
 其他文本消息会返回：
 
@@ -123,10 +130,44 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
 2. `Streaming VAD` 检测语音并生成稳定片段
 3. 若配置了 `streaming_asr`，活动段内持续发 `source=streaming` 的 partial
 4. 闭段时发 `source=streaming` 的 final
-5. 同一片段可再发 `offline_asr` 结果
-6. speaker 侧可再发一个或多个 `speaker_refine`
+5. 若 `refine_mode=asr_only` 或 `refine_mode=all`，同一片段可再发 `source=offline_asr` 结果
+6. 若 `refine_mode=speaker_only` 或 `refine_mode=all`，speaker 侧可再发一个或多个 `source=speaker_refine` 修正
 7. 后续如启用情绪分析，可对同一 `segment_id` 再发情绪修正
-8. `stop` 后在必要时补最终修正，再发 `SessionCompleted`
+8. `stop` 后按 `refine_mode` 和 speaker 状态补最终修正，再发 `SessionCompleted`
+
+### 6.1 闭段修正策略
+
+`refine_mode` 用于控制实时草稿之外是否追加闭段 `offline_asr` 精修和 speaker refine，避免默认对同一音频片段做两次完整 ASR 推理。该参数只控制 `offline_asr` 和 `speaker_refine`；情绪分析仍由独立服务端配置控制。
+
+| 取值 | 说明 |
+|---|---|
+| `none` | 不做闭段 ASR 精修，也不做 speaker refine；闭段时 `source=streaming` 的 final 即为文本最终版本 |
+| `speaker_only` | 默认值；不做闭段 ASR 精修，只在闭段后做 speaker refine，适合实时字幕和说话人展示场景 |
+| `asr_only` | 每个闭合片段都追加 `offline_asr` 精修，但不做 speaker refine，适合只关心最终文本质量的场景 |
+| `all` | 每个闭合片段都追加 `offline_asr` 精修，并执行 speaker refine，适合更看重最终稿质量且能接受更高算力消耗的场景 |
+
+如果 `enable_speaker=false`，服务端不应执行 speaker refine；此时 `speaker_only` 等效为 `none`，`all` 等效为 `asr_only`。`SessionStarted.refine_mode` 应返回服务端实际使用的模式。
+
+不同模式下服务端事件约束：
+
+| `refine_mode` | `source=offline_asr` | `source=speaker_refine` |
+|---|---:|---:|
+| `none` | 不发送 | 不发送 |
+| `speaker_only` | 不发送 | 可发送 |
+| `asr_only` | 可发送 | 不发送 |
+| `all` | 可发送 | 可发送 |
+
+### 6.2 资源限制建议
+
+实时会话会长期占用连接、缓冲区、VAD 状态、ASR 状态和 speaker 状态。服务端应通过部署配置限制：
+
+- 最大并发实时会话数
+- 单会话最大持续时长
+- 空闲会话超时时间
+- 单个二进制音频帧最大字节数
+- 单会话最大待处理音频缓冲时长
+
+超过资源限制时，服务端应返回 `ErrorResponse`，并可主动关闭 WebSocket 连接。
 
 ## 7. 客户端状态管理规则
 
@@ -177,6 +218,8 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
 |---|---|---|
 | `type` | string | 固定 `SessionStarted` |
 | `enable_speaker` | bool | 当前会话是否启用 speaker refine |
+| `enable_speaker_recognition` | bool | 当前会话是否启用已注册声纹识别 |
+| `refine_mode` | string | 当前会话实际使用的闭段修正策略 |
 
 示例：
 
@@ -187,7 +230,9 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
   "message": "success",
   "session_id": "sess_8db8f0",
   "server_time_ms": 1762900000123,
-  "enable_speaker": true
+  "enable_speaker": true,
+  "enable_speaker_recognition": false,
+  "refine_mode": "speaker_only"
 }
 ```
 
@@ -210,6 +255,10 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
 | `end_ms` | int/null | 片段结束时间；未闭段时可为空 |
 | `speaker_id` | int/null | 当前会话内的展示 speaker 编号 |
 | `speaker_state` | string | `pending` / `provisional` / `stable` |
+| `speaker_profile_id` | string/null | 匹配到的注册声纹 Profile ID；未命中或未启用时为空 |
+| `speaker_name` | string/null | 匹配到的注册声纹名称；未命中或未启用时为空 |
+| `speaker_match_score` | number/null | 注册声纹匹配分数，范围建议 `0.0 - 1.0` |
+| `speaker_match_status` | string/null | `matched` / `unknown` / `disabled` |
 | `emotion` | string/null | 情绪标签；建议值：`neutral / happy / sad / angry` |
 | `emotion_score` | number/null | 情绪置信度，范围建议 `0.0 - 1.0` |
 | `emotion_state` | string/null | `pending` / `stable` |
@@ -222,8 +271,11 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
   - 通常是片段的第一次结果
 - `source=offline_asr`
   - 更权威的文本修正
+  - 只有 `refine_mode=asr_only` 或 `refine_mode=all` 时才会返回
 - `source=speaker_refine`
   - 对 speaker 或文本做回写修正
+  - 只有 `refine_mode=speaker_only` 或 `refine_mode=all` 时才会返回
+  - 若启用了注册声纹识别，也可补充或修正 `speaker_profile_id` 等匹配字段
 - `source=emotion_refine`
   - 对情绪标签做闭段后补充或修正
 - `is_final=true`
@@ -337,6 +389,10 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
   "end_ms": 3860,
   "speaker_id": 1,
   "speaker_state": "stable",
+  "speaker_profile_id": "spk_zhangsan",
+  "speaker_name": "张三",
+  "speaker_match_score": 0.86,
+  "speaker_match_status": "matched",
   "replace_all_text": true
 }
 ```
@@ -434,6 +490,9 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
 | `3003` | `SPEAKER_REFINE_ERROR` | speaker refine 失败 |
 | `4001` | `SESSION_ERROR` | 会话状态错误 |
 | `4002` | `INVALID_CONTROL_COMMAND` | 非法控制指令 |
+| `4003` | `SESSION_LIMIT_EXCEEDED` | 实时会话数、会话时长或缓冲区超过服务端限制 |
+| `4004` | `AUDIO_FRAME_TOO_LARGE` | 单个音频帧超过服务端限制 |
+| `4005` | `SESSION_TIMEOUT` | 会话空闲超时或处理超时 |
 | `5000` | `INTERNAL_SERVER_ERROR` | 服务端内部异常 |
 
 协议设计里保留过、但当前仓库还没有实际发出的：

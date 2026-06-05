@@ -11,6 +11,18 @@
 
 ## [Unreleased]
 
+## [v1.1.0] - 2026-06-05
+
+### 新增
+
+- 实时 WebSocket 转写接口新增 `refine_mode` 参数，用于控制闭段修正策略，支持 `none` / `speaker_only` / `asr_only` / `all`。
+- 实时 WebSocket 转写接口新增注册声纹识别参数和 `TranscriptUpdate` 匹配字段，统一实时与离线声纹识别结果语义。
+
+### 变更
+
+- 明确闭段 `offline_asr` 精修和 speaker refine 是可选能力，默认使用 `speaker_only`，避免实时草稿和闭段精修对所有片段重复推理。
+- 补充实时会话资源限制建议和对应错误码，覆盖会话数、会话时长、音频帧大小和超时限制。
+
 ## [v1.0.0] - 2026-06-05
 
 ### 新增
