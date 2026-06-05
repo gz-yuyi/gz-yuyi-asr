@@ -2,10 +2,8 @@ name: Release console HTML
 
 on:
   push:
-    branches:
-      - main
     tags:
-      - '*'
+      - 'console-v*'
   workflow_dispatch:
 
 permissions:
@@ -40,23 +38,17 @@ jobs:
         id: release_meta
         shell: bash
         run: |
-          short_sha="${GITHUB_SHA::7}"
+          version="$(node -p "require('./package.json').version")"
+          version_tag="v${version}"
+          release_tag="console-${version_tag}"
+          asset="yuyi-asr-test-console-${version_tag}.html"
+          title="Console HTML ${version_tag}"
           ref_name="${GITHUB_REF_NAME}"
           ref_type="${GITHUB_REF_TYPE}"
 
-          if [[ "${ref_type}" == "tag" ]]; then
-            safe_ref="$(printf '%s' "${ref_name}" | tr '/ ' '--' | tr -c 'A-Za-z0-9._-' '-')"
-            release_tag="${ref_name}"
-            asset="yuyi-asr-test-console-${safe_ref}.html"
-            title="Console HTML ${ref_name}"
-            prerelease="false"
-            release_kind="正式 release"
-          else
-            release_tag="console-latest"
-            asset="yuyi-asr-test-console-latest.html"
-            title="Console HTML latest (${short_sha})"
-            prerelease="true"
-            release_kind="latest pre-release"
+          if [[ "${ref_type}" == "tag" && "${ref_name}" != "${release_tag}" ]]; then
+            echo "Tag ${ref_name} does not match package version release tag ${release_tag}." >&2
+            exit 1
           fi
 
           cp dist/test-console.html "${asset}"
@@ -64,16 +56,14 @@ jobs:
           {
             echo "tag=${release_tag}"
             echo "asset=${asset}"
-            echo "short_sha=${short_sha}"
+            echo "version=${version_tag}"
             echo "title=${title}"
-            echo "prerelease=${prerelease}"
-            echo "release_kind=${release_kind}"
           } >> "${GITHUB_OUTPUT}"
 
           {
             echo "语义科技ASR 测试控制台"
             echo
-            echo "- 类型: ${release_kind}"
+            echo "- 版本: ${version_tag}"
             echo "- Commit: ${GITHUB_SHA}"
             echo "- Standalone HTML: ${asset}"
             echo
@@ -84,7 +74,22 @@ jobs:
             echo '```bash'
             echo 'python3 -m http.server 5177'
             echo '```'
+            echo
+            echo "## 变更记录"
           } > release-notes.md
+
+          awk -v heading="${version_tag}" '
+            BEGIN { in_section=0; emitted=0 }
+            $0 == "## [" heading "]" || $0 ~ ("^## \\[" heading "\\] - ") { in_section=1; next }
+            /^## \[/ && in_section { in_section=0 }
+            in_section {
+              print
+              if ($0 !~ /^[[:space:]]*$/) emitted=1
+            }
+            END {
+              if (!emitted) print "\n未找到 " heading " 的更新日志条目。"
+            }
+          ' CHANGELOG.md >> release-notes.md
 
       - name: Create or update release
         env:
@@ -92,25 +97,13 @@ jobs:
           TAG: ${{ steps.release_meta.outputs.tag }}
           ASSET: ${{ steps.release_meta.outputs.asset }}
           TITLE: ${{ steps.release_meta.outputs.title }}
-          PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
         shell: bash
         run: |
-          if [[ "${PRERELEASE}" == "true" ]]; then
-            if gh release view "${TAG}" >/dev/null 2>&1; then
-              gh release delete "${TAG}" --cleanup-tag --yes
-            fi
-            gh release create "${TAG}" "${ASSET}" \
-              --target "${GITHUB_SHA}" \
-              --title "${TITLE}" \
-              --notes-file release-notes.md \
-              --prerelease
-          else
-            if gh release view "${TAG}" >/dev/null 2>&1; then
-              echo "Release ${TAG} already exists; leaving it unchanged."
-              exit 0
-            fi
-            gh release create "${TAG}" "${ASSET}" \
-              --target "${GITHUB_SHA}" \
-              --title "${TITLE}" \
-              --notes-file release-notes.md
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists; leaving it unchanged."
+            exit 0
           fi
+          gh release create "${TAG}" "${ASSET}" \
+            --target "${GITHUB_SHA}" \
+            --title "${TITLE}" \
+            --notes-file release-notes.md

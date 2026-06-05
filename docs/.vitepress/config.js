@@ -13,6 +13,7 @@ export default defineConfig({
       { text: '实时转写', link: '/realtime-websocket-api' },
       { text: '离线转写', link: '/offline_async_http' },
       { text: '声纹识别', link: '/speaker_profiles_http' },
+      { text: '热词管理', link: '/hotwords_http' },
       { text: '测试控制台', link: '/console/' },
     ],
     sidebar: [
@@ -23,6 +24,7 @@ export default defineConfig({
           { text: '实时 WebSocket 转写 API', link: '/realtime-websocket-api' },
           { text: '离线异步转写 API', link: '/offline_async_http' },
           { text: '声纹注册与识别 API', link: '/speaker_profiles_http' },
+          { text: '热词管理 API', link: '/hotwords_http' },
           { text: '授权机制与调用流程', link: '/authorization-mechanism' },
         ],
       },

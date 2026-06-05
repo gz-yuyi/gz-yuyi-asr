@@ -46,6 +46,7 @@
 - 当 `asr.type=A3_vllm` 或 `asr.type=A3_llamacpp` 时，会映射到 `prompt`
 - 当 `asr.type=asr-offline-a3` 时，会在服务启动时加载全局静态热词；更新后需重启服务
 - `Context` 会和热词提示合并后一起传给 `A3_vllm` / `A3_llamacpp`
+- 热词表创建、查询和删除详见 [热词管理 API](hotwords_http.md)
 - `SpeakerId` 仍表示单个转写任务内的临时说话人编号；启用声纹识别后，会额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等注册声纹匹配字段
 - `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只用于限定匹配范围，不改变人员身份
 - 声纹 Profile 注册、管理和匹配策略详见 [声纹注册与识别 API](speaker_profiles_http.md)
@@ -116,6 +117,64 @@
 
 ---
 
+## 上传音频创建转写任务
+
+### 接口地址
+`POST /api/asr/create_task_upload`
+
+该接口用于直接上传音频文件并创建离线转写任务。请求体为原始二进制音频内容，服务端会把文件保存到托管工作目录后按本地路径任务处理。
+
+### 请求头
+| Header | 值 |
+| :--- | :--- |
+| `Content-Type` | 音频 MIME 类型；未知时可使用 `application/octet-stream` |
+
+### 请求参数（Query）
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `filename` | string | 否 | 上传文件名，默认 `upload.wav` |
+| `callback_url` | string | 否 | 回调 URL，不填则使用轮询模式 |
+| `hotword_id` | string | 否 | 热词表 ID |
+| `context` | string | 否 | 识别上下文提示 |
+| `EnableSpeakerRecognition` | bool | 否 | 是否启用已注册声纹识别；不传则使用服务端默认配置 |
+| `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID |
+| `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的全局人员 ID |
+| `number_normalization_mode` | int | 否 | 数字转换模式：`0/1/3`，默认 `1` |
+| `filler_filter_mode` | int | 否 | 语气词过滤模式：`0/1/2`，默认 `0` |
+| `profanity_filter_mode` | int | 否 | 脏词过滤模式：`0/1/2`，默认 `0` |
+
+### 请求体
+音频文件二进制内容。
+
+### 成功响应示例
+```json
+{
+  "Response": {
+    "RequestId": "17695849897311",
+    "Data": {
+      "TaskId": 1,
+      "LocalPath": "/app/data/work/uploads/upload-xxxx.wav",
+      "Bytes": 1048576
+    }
+  }
+}
+```
+
+### 失败响应示例（空文件）
+```json
+{
+  "Response": {
+    "RequestId": "...",
+    "Error": {
+      "Code": "MissingParameter",
+      "Message": "empty upload body"
+    }
+  }
+}
+```
+
+---
+
 ## 查询任务状态
 
 ### 接口地址
@@ -131,7 +190,7 @@
 | :--- | :--- | :--- |
 | `Response.RequestId` | string | 请求 ID（时间戳数字字符串） |
 | `Response.Data.TaskId` | int | 自增长任务 ID |
-| `Response.Data.Status` | int | 任务状态（0=等待中，1=执行中，2=成功，3=失败） |
+| `Response.Data.Status` | int | 任务状态（0=等待中，1=执行中，2=成功，3=失败或取消） |
 | `Response.Data.StatusStr` | string | 状态描述 |
 | `Response.Data.CallbackStatus` | string | 回调状态：`not_required / pending / succeeded / failed` |
 | `Response.Data.CallbackAttempts` | int | 已执行的回调投递次数 |
@@ -247,6 +306,259 @@
     "Error": {
       "Code": "FailedOperation.NoSuchTask",
       "Message": "任务不存在: 123"
+    }
+  }
+}
+```
+
+---
+
+## 查询任务结果
+
+### 接口地址
+`GET /api/asr/task_result`
+
+该接口用于获取任务状态和结果明细。返回结构与 `task_status` 一致，适合在任务完成后单独拉取结果。
+
+### 请求参数（Query）
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `TaskId` | int | 是 | 创建任务时返回的任务 ID |
+
+### 成功响应示例
+```json
+{
+  "Response": {
+    "RequestId": "...",
+    "Data": {
+      "TaskId": 1,
+      "Status": 2,
+      "StatusStr": "succeeded",
+      "ProgressPercent": 100.0,
+      "ResultDetail": [
+        {
+          "FinalSentence": "你好，这是第一段语音。",
+          "StartMs": 1000,
+          "EndMs": 3500,
+          "SpeakerId": 0
+        }
+      ]
+    }
+  }
+}
+```
+
+---
+
+## 取消任务
+
+### 接口地址
+`POST /api/asr/cancel_task`
+
+该接口用于请求取消尚未完成的离线任务。已完成任务不会回退结果。
+
+### 请求头
+| Header | 值 |
+| :--- | :--- |
+| `Content-Type` | `application/json` |
+
+### 请求体（JSON）
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `TaskId` | int | 是 | 创建任务时返回的任务 ID |
+
+### 请求示例
+```json
+{
+  "TaskId": 1
+}
+```
+
+### 成功响应示例
+```json
+{
+  "Response": {
+    "RequestId": "17695849897311",
+    "Data": {
+      "TaskId": 1,
+      "Status": 3,
+      "StatusStr": "canceled",
+      "CallbackStatus": "not_required",
+      "CallbackAttempts": 0,
+      "ProgressPercent": 0.0,
+      "ProgressStage": "canceled",
+      "ProgressCurrent": 0,
+      "ProgressTotal": 0
+    }
+  }
+}
+```
+
+---
+
+## 查询任务列表
+
+### 接口地址
+`GET /api/asr/task_list`
+
+### 请求参数（Query）
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `Status` | string | 否 | 状态过滤，默认 `succeeded`；支持 `queued / running / callback_pending / succeeded / failed / canceled / all` |
+| `Limit` | int | 否 | 返回数量，默认 `50`，最大 `200` |
+| `Offset` | int | 否 | 偏移量，默认 `0` |
+
+### 响应参数
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `Response.Data.Items` | array | 任务列表 |
+| `Response.Data.Total` | int | 符合过滤条件的任务总数 |
+| `Response.Data.Limit` | int | 本次请求的返回数量 |
+| `Response.Data.Offset` | int | 本次请求的偏移量 |
+| `Response.Data.Items[].TaskId` | int | 任务 ID |
+| `Response.Data.Items[].Status` | int | 任务状态（0=等待中，1=执行中，2=成功，3=失败或取消） |
+| `Response.Data.Items[].StatusStr` | string | 状态描述 |
+| `Response.Data.Items[].SourceType` | int | 音频来源类型 |
+| `Response.Data.Items[].SourceUrl` | string | URL 来源地址 |
+| `Response.Data.Items[].LocalPath` | string | 本地来源路径或上传后保存路径 |
+| `Response.Data.Items[].HotwordId` | string | 热词表 ID |
+| `Response.Data.Items[].Context` | string | 识别上下文提示 |
+| `Response.Data.Items[].AudioDuration` | number | 音频时长（秒） |
+| `Response.Data.Items[].ResultSegmentCount` | int | 结果片段数量 |
+| `Response.Data.Items[].Preview` | string | 首个非空结果片段预览 |
+| `Response.Data.Items[].HasResult` | bool | 是否已有结果 |
+| `Response.Data.Items[].HasAudio` | bool | 是否可通过 `task_audio` 获取音频 |
+| `Response.Data.Items[].CallbackStatus` | string | 回调状态 |
+| `Response.Data.Items[].CallbackAttempts` | int | 回调尝试次数 |
+| `Response.Data.Items[].ProgressPercent` | number | 任务进度百分比 |
+| `Response.Data.Items[].ProgressStage` | string | 当前处理阶段 |
+| `Response.Data.Items[].CreatedAt` | string | 创建时间 |
+| `Response.Data.Items[].UpdatedAt` | string | 更新时间 |
+| `Response.Data.Items[].StartedAt` | string | 开始处理时间 |
+| `Response.Data.Items[].FinishedAt` | string | 完成时间 |
+
+### 成功响应示例
+```json
+{
+  "Response": {
+    "RequestId": "17695849897311",
+    "Data": {
+      "Items": [
+        {
+          "TaskId": 1,
+          "Status": 2,
+          "StatusStr": "succeeded",
+          "SourceType": 0,
+          "SourceUrl": "https://example.com/audio/test.wav",
+          "LocalPath": null,
+          "HotwordId": "default",
+          "Context": "请优先识别广州",
+          "AudioDuration": 600.0,
+          "ResultSegmentCount": 24,
+          "Preview": "你好，这是第一段语音。",
+          "HasResult": true,
+          "HasAudio": true,
+          "CallbackStatus": "not_required",
+          "CallbackAttempts": 0,
+          "ProgressPercent": 100.0,
+          "ProgressStage": "succeeded",
+          "CreatedAt": "2026-06-05T10:00:00",
+          "UpdatedAt": "2026-06-05T10:03:00",
+          "StartedAt": "2026-06-05T10:00:10",
+          "FinishedAt": "2026-06-05T10:03:00"
+        }
+      ],
+      "Total": 1,
+      "Limit": 50,
+      "Offset": 0
+    }
+  }
+}
+```
+
+---
+
+## 获取任务音频
+
+### 接口地址
+`GET /api/asr/task_audio`
+
+该接口用于获取任务关联音频。对于上传文件或本地文件任务，服务端返回文件内容；对于 URL 来源任务，如果本地无托管音频，服务端会重定向到原始 URL。
+
+### 请求参数（Query）
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `TaskId` | int | 是 | 创建任务时返回的任务 ID |
+
+### 成功响应
+- 本地文件：返回音频二进制内容，`Content-Type` 按文件类型推断。
+- URL 来源：可能返回 `3xx` 重定向到原始音频地址。
+
+### 失败响应示例（音频不存在）
+```json
+{
+  "Response": {
+    "RequestId": "...",
+    "Error": {
+      "Code": "FailedOperation.ArtifactNotFound",
+      "Message": "audio not found for task: 1"
+    }
+  }
+}
+```
+
+---
+
+## 下载任务结果
+
+### 接口地址
+`GET /api/asr/task_result_download`
+
+### 请求参数（Query）
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `TaskId` | int | 是 | 创建任务时返回的任务 ID |
+| `Format` | string | 否 | 下载格式，支持 `json / txt`，默认 `json` |
+
+### 成功响应
+- `Format=json`：返回 `application/json; charset=utf-8`，内容为任务结果 JSON。
+- `Format=txt`：返回 `text/plain; charset=utf-8`，内容为按行拼接的 `FinalSentence`。
+
+---
+
+## 查询任务统计
+
+### 接口地址
+`GET /api/asr/task_stats`
+
+### 响应参数
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `QueuedTasks` | int | 等待处理的任务数 |
+| `RunningTasks` | int | 正在处理或等待回调的任务数 |
+| `SucceededTasks` | int | 已成功任务数 |
+| `FailedTasks` | int | 识别失败任务数 |
+| `CanceledTasks` | int | 已取消任务数 |
+| `TotalTasks` | int | 任务总数 |
+| `PendingTranscriptionTasks` | int | 等待或正在转写的任务数 |
+| `TranscriptionFailedTasks` | int | 转写失败任务数 |
+| `CallbackFailedTasks` | int | 回调最终失败任务数 |
+
+### 成功响应示例
+```json
+{
+  "Response": {
+    "RequestId": "17695849897311",
+    "Data": {
+      "QueuedTasks": 0,
+      "RunningTasks": 1,
+      "SucceededTasks": 10,
+      "FailedTasks": 1,
+      "CanceledTasks": 0,
+      "TotalTasks": 12,
+      "PendingTranscriptionTasks": 1,
+      "TranscriptionFailedTasks": 1,
+      "CallbackFailedTasks": 0
     }
   }
 }
@@ -531,7 +843,7 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 - `0` = 等待中
 - `1` = 执行中
 - `2` = 成功
-- `3` = 失败
+- `3` = 失败或取消
 
 但内部最好细一点，便于排障：
 
@@ -542,6 +854,7 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 - `callback_pending`
 - `succeeded`
 - `failed`
+- `canceled`
 
 对外仍映射回 `0/1/2/3`，内部保留更细的可观测状态。
 
@@ -607,46 +920,13 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 
 第一版可以先不做：
 
-- 回调重试
-- 任务取消
 - 任务优先级
 - 多租户隔离
 - 分布式任务调度
 
-### 我建议补的两个接口
+### 当前已实现的辅助接口
 
-如果你准备长期维护这套异步接口，我建议顺手补这两个：
-
-#### 取消任务
-`POST /api/asr/cancel_task`
-
-请求体：
-
-```json
-{
-  "TaskId": 1
-}
-```
-
-用途：
-
-- 长音频误提交后可取消
-- 避免无效任务一直占 worker
-
-#### 查询结果明细
-`GET /api/asr/task_result`
-
-请求参数：
-
-- `TaskId`
-
-用途：
-
-- `task_status` 只查状态
-- `task_result` 只查结果
-- 对大结果集更合理
-
-如果暂时不想拆接口，也可以继续沿用现在 `task_status` 同时带状态和结果。
+当前服务已经正式提供上传建任务、任务列表、任务结果、任务音频、结果下载、任务统计和取消任务接口，具体以本文上方接口章节为准。
 
 ### 风险点
 
@@ -672,7 +952,7 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 1. 先实现任务入库和轮询查询
 2. 再实现后台 worker 跑离线识别
 3. 再接回调
-4. 最后再补取消任务和更细的任务状态
+4. 最后再补更细的任务状态和管理能力
 
 ---
 

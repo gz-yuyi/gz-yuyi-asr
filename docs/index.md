@@ -20,6 +20,8 @@ features:
     details: 创建任务、上传音频、轮询状态、下载结果，并支持回调模式。
   - title: 声纹注册与识别
     details: 管理 Speaker Profile、注册 enrollment，并把临时 SpeakerId 映射到已知人员。
+  - title: 热词管理
+    details: 维护热词表，并在实时或离线识别任务中通过热词表 ID 引用。
   - title: 授权路数控制
     details: 说明在线授权协议、并发路数限制和状态查询接口。
 ---
@@ -29,5 +31,6 @@ features:
 - [实时 WebSocket 转写 API](./realtime-websocket-api.md)
 - [离线异步转写 API](./offline_async_http.md)
 - [声纹注册与识别 API](./speaker_profiles_http.md)
+- [热词管理 API](./hotwords_http.md)
 - [授权机制与调用流程](./authorization-mechanism.md)
 - [在线测试控制台](/console/)

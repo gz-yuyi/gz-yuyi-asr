@@ -113,8 +113,6 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | :--- | :--- | :--- | :--- |
 | `SpeakerProfileId` | string | 是 | 全局唯一人员 ID |
 | `SpeakerName` | string | 条件必填 | `AutoCreate=true` 且 Profile 不存在时必填 |
-| `GroupId` | string | 否 | 声纹组ID,如果不传加入默认的声纹组 |
-| `GroupName` | string | 否 | 声纹组名称,如果不传加入默认的声纹组 |
 | `SourceType` | int | 是 | 音频来源类型：`0`=URL，`1`=本地文件路径 |
 | `Url` | string | 条件必填 | 音频 URL 地址（`SourceType=0` 时必填） |
 | `Extra` | string | 条件必填 | 本地音频文件绝对路径（`SourceType=1` 时必填） |
@@ -288,7 +286,6 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | `Status` | string | 否 | 状态过滤：`active / disabled / all`，默认 `active` |
 | `Limit` | int | 否 | 返回数量，默认 `50`，最大 `200` |
 | `Offset` | int | 否 | 偏移量，默认 `0` |
-| `GroupId` | string | 否 | 声纹组ID,如果不传查询默认声纹组中的数据 |
 
 ### 成功响应示例
 ```json
@@ -384,7 +381,6 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | :--- | :--- | :--- | :--- |
 | `SpeakerProfileId` | string | 是 | 全局唯一人员 ID |
 | `HardDelete` | bool | 否 | 是否物理删除；默认 `false`，即仅置为 `disabled` |
-| `GroupId` | string | 否 | 声纹组ID,如果不传取默认声纹组 |
 
 ### 请求示例
 ```json
