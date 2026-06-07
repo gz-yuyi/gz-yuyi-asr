@@ -251,8 +251,7 @@ function requireMediaDevices() {
   return navigator.mediaDevices;
 }
 
-async function handleRealtimeFileChange(event) {
-  const file = event.target.files[0];
+async function loadRealtimeFile(file) {
   if (!file) return;
 
   $('waveformPlaceholder').classList.add('hidden');
@@ -277,6 +276,10 @@ async function handleRealtimeFileChange(event) {
     $('playAudioBtn').disabled = true;
     toast(`音频解码失败: ${err.message}`, 'error');
   }
+}
+
+async function handleRealtimeFileChange(event) {
+  await loadRealtimeFile(event.target.files[0]);
 }
 
 function playPreviewAudio() {
@@ -315,6 +318,7 @@ function buildWsUrl() {
   params.set('audio_encoding', audioEncoding);
   params.set('sample_rate', audioEncoding === 'pcm_s16le' ? '16000' : ($('sampleRate').value || '16000'));
   params.set('enable_speaker', $('enableSpeaker').value);
+  params.set('refine_mode', $('refineMode').value || 'speaker_only');
 
   const optionals = [
     ['speaker_num', 'speakerNum'],
@@ -491,8 +495,7 @@ function setupWsHandlers(ws) {
   };
 }
 
-function connectAndSendFile() {
-  const file = $('realtimeFile').files[0];
+function startRealtimeSend(file) {
   if (!file) {
     toast('请先选择音频文件', 'error');
     return;
@@ -517,6 +520,32 @@ function connectAndSendFile() {
     await sendAudio(file);
   };
   setupWsHandlers(ws);
+}
+
+function connectAndSendFile() {
+  startRealtimeSend($('realtimeFile').files[0]);
+}
+
+async function connectAndSendUrl() {
+  const audioUrl = $('realtimeAudioUrl').value.trim();
+  if (!audioUrl) {
+    toast('请先输入音频 URL', 'error');
+    return;
+  }
+  try {
+    appendLog($('realtimeLog'), `加载音频 URL ${audioUrl}`, 'log-info', 'info');
+    const response = await fetch(audioUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const pathname = new URL(audioUrl, window.location.href).pathname;
+    const name = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || `realtime-url-${Date.now()}.wav`);
+    const file = new File([blob], name, { type: blob.type || 'audio/wav' });
+    await loadRealtimeFile(file);
+    startRealtimeSend(file);
+  } catch (err) {
+    appendLog($('realtimeLog'), `URL 音频加载失败: ${err.message}`, 'log-err', 'error');
+    toast(`URL 音频加载失败: ${err.message}`, 'error');
+  }
 }
 
 function updateMicTimer() {
@@ -694,6 +723,7 @@ export function registerRealtime() {
     if (realtime.previewAudioBuffer) drawWaveform($('waveformCanvas'), realtime.previewAudioBuffer);
   });
   $('connectBtn').addEventListener('click', connectAndSendFile);
+  $('connectUrlBtn').addEventListener('click', connectAndSendUrl);
   $('micBtn').addEventListener('click', startMic);
   $('micStopBtn').addEventListener('click', () => {
     if (realtime.ws?.readyState === WebSocket.OPEN) {

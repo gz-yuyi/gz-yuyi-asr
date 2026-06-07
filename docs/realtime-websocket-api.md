@@ -52,6 +52,7 @@
 - 压缩格式当前按“每个二进制帧是可独立解码的音频块”处理
 - 若未配置 `streaming_asr`，实时文本仍退化为“闭段后一次性输出”
 - 配置 `streaming_asr` 后，会在活动段内先发 `source=streaming` 的低延迟草稿
+- `Streaming VAD` 默认使用 FSMN VAD 的 FunASR 流式 cache；API 与 worker 连接同一 Ray cluster 时可通过 VAD actor 保存会话 cache，服务端也可按部署配置降级为能量阈值 VAD
 - 闭段 `offline_asr` 精修和 speaker refine 由 `refine_mode` 控制；默认使用 `speaker_only`，避免实时草稿和闭段精修对所有片段重复推理
 - 若服务端配置了支持流式的 `qwen3-asr` 后端，可作为实时草稿来源；未配置时仍可作为闭段精修后端
 - speaker refine 基于 embedding 与增量/周期聚类
@@ -130,8 +131,8 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&refine_mode=speaker_onl
 2. `Streaming VAD` 检测语音并生成稳定片段
 3. 若配置了 `streaming_asr`，活动段内持续发 `source=streaming` 的 partial
 4. 闭段时发 `source=streaming` 的 final
-5. 若 `refine_mode=asr_only` 或 `refine_mode=all`，同一片段可再发 `source=offline_asr` 结果
-6. 若 `refine_mode=speaker_only` 或 `refine_mode=all`，speaker 侧可再发一个或多个 `source=speaker_refine` 修正
+5. 若 `refine_mode=asr_only` 或 `refine_mode=all`，服务端可对闭合片段或相邻闭合片段组再发 `source=offline_asr` 精修结果
+6. 若 `refine_mode=speaker_only` 或 `refine_mode=all`，speaker 侧可再发一个或多个 `source=speaker_refine` 修正；无法稳定判定说话人时也可返回 `speaker_state=unknown`
 7. 后续如启用情绪分析，可对同一 `segment_id` 再发情绪修正
 8. `stop` 后按 `refine_mode` 和 speaker 状态补最终修正，再发 `SessionCompleted`
 
@@ -143,8 +144,8 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&refine_mode=speaker_onl
 |---|---|
 | `none` | 不做闭段 ASR 精修，也不做 speaker refine；闭段时 `source=streaming` 的 final 即为文本最终版本 |
 | `speaker_only` | 默认值；不做闭段 ASR 精修，只在闭段后做 speaker refine，适合实时字幕和说话人展示场景 |
-| `asr_only` | 每个闭合片段都追加 `offline_asr` 精修，但不做 speaker refine，适合只关心最终文本质量的场景 |
-| `all` | 每个闭合片段都追加 `offline_asr` 精修，并执行 speaker refine，适合更看重最终稿质量且能接受更高算力消耗的场景 |
+| `asr_only` | 对闭合片段追加 `offline_asr` 精修，但不做 speaker refine；服务端可先合并相邻短闭段再精修，适合只关心最终文本质量的场景 |
+| `all` | 对闭合片段追加 `offline_asr` 精修，并执行 speaker refine；服务端可先合并相邻短闭段再精修，适合更看重最终稿质量且能接受更高算力消耗的场景 |
 
 如果 `enable_speaker=false`，服务端不应执行 speaker refine；此时 `speaker_only` 等效为 `none`，`all` 等效为 `asr_only`。`SessionStarted.refine_mode` 应返回服务端实际使用的模式。
 
@@ -254,7 +255,7 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&refine_mode=speaker_onl
 | `start_ms` | int | 片段起始时间 |
 | `end_ms` | int/null | 片段结束时间；未闭段时可为空 |
 | `speaker_id` | int/null | 当前会话内的展示 speaker 编号 |
-| `speaker_state` | string | `pending` / `provisional` / `stable` |
+| `speaker_state` | string | `pending` / `provisional` / `stable` / `unknown` |
 | `speaker_profile_id` | string/null | 匹配到的注册声纹 Profile ID；未命中或未启用时为空 |
 | `speaker_name` | string/null | 匹配到的注册声纹名称；未命中或未启用时为空 |
 | `speaker_match_score` | number/null | 注册声纹匹配分数，范围建议 `0.0 - 1.0` |
@@ -272,9 +273,11 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&refine_mode=speaker_onl
 - `source=offline_asr`
   - 更权威的文本修正
   - 只有 `refine_mode=asr_only` 或 `refine_mode=all` 时才会返回
+  - 服务端可能将相邻短闭段合并后转写；合并后的首个 `segment_id` 承载精修文本和合并后的 `start_ms/end_ms`，被合并的后续片段可通过 `segment_deleted=true` 删除
 - `source=speaker_refine`
   - 对 speaker 或文本做回写修正
   - 只有 `refine_mode=speaker_only` 或 `refine_mode=all` 时才会返回
+  - 若 speaker tracker 未能稳定判定说话人，可返回 `speaker_id=null` 和 `speaker_state=unknown`，文本仍保留当前片段最终文本
   - 若启用了注册声纹识别，也可补充或修正 `speaker_profile_id` 等匹配字段
 - `source=emotion_refine`
   - 对情绪标签做闭段后补充或修正

@@ -11,6 +11,13 @@
 
 ## [Unreleased]
 
+## [v1.1.1] - 2026-06-07
+
+### 新增
+
+- 测试控制台实时 WebSocket 面板新增 `refine_mode` 选择项，并在连接时写入 WebSocket URL，便于验收 `none` / `speaker_only` / `asr_only` / `all` 四种闭段修正策略。
+- 测试控制台实时 WebSocket 面板新增音频 URL 加载入口，便于在浏览器文件上传不可用的环境中通过 HTTP 音频地址完成流式发送验收。
+
 ## [v1.1.0] - 2026-06-05
 
 ### 新增
