@@ -11,6 +11,10 @@
 
 ## [Unreleased]
 
+### 变更
+
+- 测试控制台 HTML 资产改为合并发布到 `vX.Y.Z` release，不再创建独立的 `console-vX.Y.Z` release。
+
 ## [v1.1.1] - 2026-06-07
 
 ### 新增
@@ -40,7 +44,7 @@
 ### 变更
 
 - 将接口标准确认为中心文档维护，并补齐离线转写任务的上传、结果、取消、列表、音频、下载和统计接口说明。
-- 测试控制台 HTML release 改为按版本发布，使用 `console-vX.Y.Z` tag 和 `yuyi-asr-test-console-vX.Y.Z.html` 资产命名。
+- 测试控制台 HTML release 改为按版本发布，使用 `vX.Y.Z` tag 和 `yuyi-asr-test-console-vX.Y.Z.html` 资产命名。
 
 ### 修复
 

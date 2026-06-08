@@ -11,6 +11,6 @@ Versioning rules:
 When bumping a version:
 - Update package.json and package-lock.json together.
 - Update CHANGELOG.md under the matching version section or under [Unreleased] before the version is finalized.
-- Versioned console release tags must use `console-vX.Y.Z`.
+- Versioned releases must use `vX.Y.Z`; do not create separate `console-vX.Y.Z` releases.
 - Versioned console HTML assets must use `yuyi-asr-test-console-vX.Y.Z.html`.
 - Do not publish or depend on `latest` console assets for application packaging.
