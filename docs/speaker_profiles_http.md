@@ -37,7 +37,7 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 - 推荐有效语音时长不少于 **10 秒**，更稳定的注册样本建议 **30 秒以上**。
 - 服务端会复用离线转写链路中的音频准备、VAD、固定窗口切片和声纹 embedding 模型。
 - 注册时不建议直接对整段音频只提一个 embedding；应先切成与识别链路一致的小片段，再对小片段 embedding 做质量过滤和聚合。
-- 同一个 `SpeakerProfileId` 可以多次注册样本；每次注册生成一条独立 enrollment。
+- 同一个 `SpeakerProfileId` 可以多次注册样本；一次注册可能生成 1 条或多条 enrollment。服务端可把同一注册音频中的多个稳定主簇保存为多个 prototype enrollment，用于覆盖同一人员的不同声学状态。
 - 不同声纹模型或模型版本产生的 embedding 不应直接混用；匹配时只比较相同模型版本和向量维度的注册向量。
 
 ---
@@ -144,8 +144,10 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
       "SpeakerProfileId": "spk_zhangsan",
       "SpeakerName": "张三",
       "EnrollmentId": "enr_000001",
-      "EnrollmentCount": 1,
+      "EnrollmentCount": 3,
       "QualityScore": 0.91,
+      "PrototypeCount": 3,
+      "PrototypeEnrollmentIds": ["enr_000001", "enr_000002", "enr_000003"],
       "Status": "active"
     }
   }
@@ -453,6 +455,8 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | `EnrollmentId` | 本次注册生成的样本 ID |
 | `EnrollmentCount` | 当前人员的注册样本数量 |
 | `QualityScore` | 本次注册样本质量分 |
+| `PrototypeCount` | 本次注册生成的 prototype enrollment 数；服务端未启用多 prototype 时通常为 `1` |
+| `PrototypeEnrollmentIds` | 本次注册生成的所有 prototype enrollment ID；首个 ID 与 `EnrollmentId` 一致 |
 | `EffectiveSpeechMs` | 注册样本有效语音时长；查询详情时可返回 |
 | `Status` | Profile 状态 |
 
@@ -466,20 +470,27 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 
 | 环境变量 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `OFFLINE_ASR_SPEAKER_RECOGNITION_ENABLED` | `false` | 是否默认启用注册声纹识别 |
-| `OFFLINE_ASR_SPEAKER_MATCH_THRESHOLD` | `0.78` | 最低匹配分数阈值 |
-| `OFFLINE_ASR_SPEAKER_MATCH_MARGIN` | `0.04` | `top1 - top2` 最小差值；用于避免相近声纹误认 |
-| `OFFLINE_ASR_SPEAKER_MIN_ENROLL_SPEECH_MS` | `10000` | 注册时最低有效语音时长 |
-| `OFFLINE_ASR_SPEAKER_MIN_ENROLL_QUALITY_SCORE` | `0` | 注册质量分最低阈值；`0` 表示只返回分数不拦截 |
-| `OFFLINE_ASR_SPEAKER_MIN_CLUSTER_SPEECH_MS` | `3000` | 识别时参与匹配的临时说话人最低累计时长 |
-| `OFFLINE_ASR_SPEAKER_ENROLL_SUBSEGMENT_DURATION_MS` | 跟随转写链路 | 注册时声纹子段窗口长度 |
-| `OFFLINE_ASR_SPEAKER_ENROLL_SUBSEGMENT_SHIFT_MS` | 跟随转写链路 | 注册时声纹子段滑动步长 |
+| `YUYI_ASR_SPEAKER_RECOGNITION_ENABLED` | `false` | 是否默认启用注册声纹识别 |
+| `YUYI_ASR_SPEAKER_MATCH_THRESHOLD` | `0.78` | 最低匹配分数阈值 |
+| `YUYI_ASR_SPEAKER_MATCH_MARGIN` | `0.04` | `top1 - top2` 最小差值；用于避免相近声纹误认 |
+| `YUYI_ASR_SPEAKER_MIN_ENROLL_SPEECH_MS` | `10000` | 注册时最低有效语音时长 |
+| `YUYI_ASR_SPEAKER_MIN_ENROLL_QUALITY_SCORE` | `0` | 注册质量分最低阈值；`0` 表示只返回分数不拦截 |
+| `YUYI_ASR_SPEAKER_MIN_ENROLL_CONSISTENCY_SCORE` | `0.65` | 注册声纹内部一致性最低阈值 |
+| `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO` | `0.6` | 剔除离群 subsegment 后要求保留的最小比例 |
+| `YUYI_ASR_SPEAKER_ENROLL_OUTLIER_SIMILARITY_THRESHOLD` | `0.55` | 注册声纹 subsegment 与主声音簇代表向量的最小相似度，低于该值会作为离群片段剔除 |
+| `YUYI_ASR_SPEAKER_MAX_ENROLL_PROTOTYPES` | `3` | 每次注册最多写入的 prototype enrollment 数；设为 `1` 时退回单中心向量 |
+| `YUYI_ASR_SPEAKER_ENROLL_PROTOTYPE_SIMILARITY_THRESHOLD` | `0.82` | 生成多 prototype 时，同一局部 prototype 内 subsegment 与 seed 的最小相似度 |
+| `YUYI_ASR_SPEAKER_MIN_ENROLL_PROTOTYPE_SUBSEGMENTS` | `4` | 每个额外 prototype 至少需要覆盖的 subsegment 数 |
+| `YUYI_ASR_SPEAKER_MIN_CLUSTER_SPEECH_MS` | `3000` | 识别时参与匹配的临时说话人最低累计时长 |
+| `YUYI_ASR_SPEAKER_ENROLL_SUBSEGMENT_DURATION_MS` | 跟随转写链路 | 注册时声纹子段窗口长度 |
+| `YUYI_ASR_SPEAKER_ENROLL_SUBSEGMENT_SHIFT_MS` | 跟随转写链路 | 注册时声纹子段滑动步长 |
 
 匹配策略：
 - 当前任务仍先做音频内说话人聚类，得到临时 `SpeakerId`。
 - 对每个临时 `SpeakerId` 汇总其子段 embedding centroid。
 - 用该 centroid 到声纹库中检索相同模型版本、相同维度的 enrollment centroid，距离使用 cosine。
 - 同一个 `SpeakerProfileId` 下可以有多个 enrollment；服务端先从向量库取候选 enrollment 分数，再归并到 Profile。
+- 多 prototype 注册会把同一注册音频中的多个稳定主簇保存为同一 Profile 下的多条 enrollment；匹配时仍按 Profile 归并，不会把这些 prototype 当成不同人员。
 - Profile 分数建议取该 Profile 下 top enrollment 分数，或 top-k enrollment 平均分；第一版推荐取 top enrollment 分数，便于覆盖不同录音设备和场景。
 - 只有 `top1 profile score >= threshold` 且 `top1 - top2 >= margin` 时返回 `matched`；否则返回 `unknown`。
 
