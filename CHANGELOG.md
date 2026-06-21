@@ -19,6 +19,7 @@
 
 ### 修复
 
+- 测试控制台实时转写表格会按 `segment_deleted=true` 删除已展示片段，不再把严格语气词过滤产生的空删除事件渲染为空白行。（关联 [yuyi-asr#25](https://github.com/gz-yuyi/yuyi-asr/issues/25)）
 - 测试控制台音频上传和声纹注册上传改为无硬超时的上传请求，并在上传状态中显示进度，避免大文件上传超过通用 HTTP 超时后只显示浏览器 abort 原始错误。（关联 [#27](https://github.com/gz-yuyi/yuyi-asr/issues/27)）
 
 ## [v1.1.1] - 2026-06-07

@@ -48,8 +48,9 @@ function summarizeRealtimeEvent(json) {
     const emo = json.emotion ? ` emotion=${json.emotion}` : '';
     const parent = json.parent_segment_id ? ` parent=${json.parent_segment_id}` : '';
     const supersedes = json.supersedes_segment_id ? ` supersedes=${json.supersedes_segment_id}` : '';
+    const deleted = json.segment_deleted ? ' deleted=true' : '';
     const preview = (json.text || '').slice(0, 80);
-    return `TranscriptUpdate seg=${seg} rev=${rev} source=${src}${spk}${emo}${parent}${supersedes} text=${preview}`;
+    return `TranscriptUpdate seg=${seg} rev=${rev} source=${src}${spk}${emo}${parent}${supersedes}${deleted} text=${preview}`;
   }
   return pretty(json);
 }
@@ -427,6 +428,7 @@ async function sendAudio(file) {
 function rebuildSegments() {
   const rows = [...realtime.segments.values()]
     .filter(seg => !realtime.supersededSegments.has(seg.segment_id || ''))
+    .filter(seg => !seg.segment_deleted)
     .sort((a, b) => (a.start_ms ?? 0) - (b.start_ms ?? 0));
 
   if (rows.length === 0) {
@@ -476,6 +478,13 @@ function setupWsHandlers(ws) {
     if (json.type === 'TranscriptUpdate') {
       if (json.supersedes_segment_id) realtime.supersededSegments.add(json.supersedes_segment_id);
       const current = realtime.segments.get(json.segment_id);
+      if (json.segment_deleted) {
+        if (!current || (json.revision ?? 0) >= (current.revision ?? 0)) {
+          realtime.segments.delete(json.segment_id);
+          rebuildSegments();
+        }
+        return;
+      }
       if (!current || (json.revision ?? 0) >= (current.revision ?? 0)) {
         realtime.segments.set(json.segment_id, json);
         rebuildSegments();
