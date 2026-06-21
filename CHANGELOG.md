@@ -14,6 +14,7 @@
 ### 变更
 
 - 测试控制台 HTML 资产改为合并发布到 `vX.Y.Z` release，不再创建独立的 `console-vX.Y.Z` release。
+- 测试控制台声纹管理页将多条 enrollment 明确展示为“声纹样本 / prototype”，并补充质量分含义和注册成功时生成 prototype 数提示，避免误解为识别出了多个不同人员。
 
 ## [v1.1.1] - 2026-06-07
 
