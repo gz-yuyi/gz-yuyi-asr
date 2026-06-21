@@ -1,7 +1,15 @@
 import { $, qsa } from '../core/dom.js';
-import { apiErrorMessage, dataOrNull, httpBinary, httpJson, summarizeHttpResponse } from '../core/api.js';
+import { apiErrorMessage, dataOrNull, httpJson, httpUpload, summarizeHttpResponse } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
-import { buildQuery, esc, pretty, speakerMsText, speakerScoreText } from '../core/format.js';
+import {
+  buildQuery,
+  esc,
+  formatBytes,
+  formatUploadProgress,
+  pretty,
+  speakerMsText,
+  speakerScoreText,
+} from '../core/format.js';
 import { toast } from '../core/toast.js';
 
 function speakerProfileId() {
@@ -406,7 +414,7 @@ function rememberEnrollment(res) {
 
 function updateSpeakerEnrollUploadStatus() {
   const file = $('speakerEnrollFile').files[0];
-  $('speakerEnrollUploadStatus').value = file ? `${file.name} · ${Math.ceil(file.size / 1024)} KB` : '未选择文件';
+  $('speakerEnrollUploadStatus').value = file ? `${file.name} · ${formatBytes(file.size)}` : '未选择文件';
 }
 
 async function uploadSpeakerEnrollment() {
@@ -430,11 +438,16 @@ async function uploadSpeakerEnrollment() {
     Filename: file.name,
   });
   try {
-    $('speakerEnrollUploadStatus').value = '上传注册中...';
+    const uploadBtn = $('uploadSpeakerEnrollBtn');
+    uploadBtn.disabled = true;
+    $('speakerEnrollUploadStatus').value = '准备上传...';
     appendLog($('speakerLog'), `上传注册声纹: ${file.name} (${file.size} bytes)`, 'log-sent', 'info');
-    const res = await httpBinary(`/api/speakers/enroll_upload${query}`, {
+    const res = await httpUpload(`/api/speakers/enroll_upload${query}`, {
       body: file,
       contentType: file.type || 'application/octet-stream',
+      onProgress: progress => {
+        $('speakerEnrollUploadStatus').value = formatUploadProgress(progress);
+      },
     });
     logSpeakerResponse(res, '上传注册');
     const data = rememberEnrollment(res);
@@ -446,6 +459,8 @@ async function uploadSpeakerEnrollment() {
     $('speakerEnrollUploadStatus').value = '注册失败';
     appendLog($('speakerLog'), `上传注册失败: ${err.message}`, 'log-err', 'error');
     toast(`注册失败: ${err.message}`, 'error');
+  } finally {
+    $('uploadSpeakerEnrollBtn').disabled = false;
   }
 }
 

@@ -16,6 +16,10 @@
 - 测试控制台 HTML 资产改为合并发布到 `vX.Y.Z` release，不再创建独立的 `console-vX.Y.Z` release。
 - 测试控制台声纹管理页将多条 enrollment 明确展示为“声纹样本 / prototype”，并补充质量分含义和注册成功时生成 prototype 数提示，避免误解为识别出了多个不同人员。
 
+### 修复
+
+- 测试控制台音频上传和声纹注册上传改为无硬超时的上传请求，并在上传状态中显示进度，避免大文件上传超过通用 HTTP 超时后只显示浏览器 abort 原始错误。（关联 [#27](https://github.com/gz-yuyi/yuyi-asr/issues/27)）
+
 ## [v1.1.1] - 2026-06-07
 
 ### 新增

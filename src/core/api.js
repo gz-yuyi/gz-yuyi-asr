@@ -134,6 +134,76 @@ export async function httpBinary(path, { method = 'POST', body, contentType = 'a
   });
 }
 
+export function httpUpload(
+  path,
+  {
+    method = 'POST',
+    body,
+    contentType = 'application/octet-stream',
+    onProgress,
+  } = {},
+) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, buildHttpUrl(path), true);
+    if (contentType) xhr.setRequestHeader('Content-Type', contentType);
+
+    xhr.upload.onprogress = event => {
+      if (typeof onProgress !== 'function') return;
+      onProgress(uploadProgress(event.loaded, event.total, event.lengthComputable));
+    };
+    xhr.upload.onload = () => {
+      if (typeof onProgress !== 'function') return;
+      const size = Number(body?.size || 0);
+      onProgress(uploadProgress(size, size, size > 0, true));
+    };
+
+    xhr.onload = () => {
+      const text = xhr.responseText || '';
+      resolve({
+        ok: xhr.status >= 200 && xhr.status < 300,
+        status: xhr.status,
+        text,
+        json: safeParse(text),
+        headers: headersFromXhr(xhr.getAllResponseHeaders()),
+      });
+    };
+    xhr.onerror = () => {
+      reject(new Error('上传失败：网络错误或跨域请求被浏览器阻止'));
+    };
+    xhr.onabort = () => {
+      reject(new Error('上传已取消'));
+    };
+    xhr.ontimeout = () => {
+      reject(new Error('上传超时'));
+    };
+    xhr.send(body);
+  });
+}
+
+function uploadProgress(loaded, total, lengthComputable, done = false) {
+  const safeLoaded = Math.max(0, Number(loaded) || 0);
+  const safeTotal = Math.max(0, Number(total) || 0);
+  return {
+    loaded: safeLoaded,
+    total: safeTotal,
+    lengthComputable: Boolean(lengthComputable && safeTotal > 0),
+    percent: safeTotal > 0 ? Math.min(100, Math.round((safeLoaded / safeTotal) * 100)) : null,
+    done,
+  };
+}
+
+function headersFromXhr(rawHeaders) {
+  const headers = new Headers();
+  String(rawHeaders || '').trim().split(/[\r\n]+/).forEach(line => {
+    if (!line) return;
+    const index = line.indexOf(':');
+    if (index <= 0) return;
+    headers.append(line.slice(0, index).trim(), line.slice(index + 1).trim());
+  });
+  return headers;
+}
+
 export async function downloadFile(path) {
   const ctrl = new AbortController();
   const timeout = Number($('httpTimeoutMs').value || 30000);

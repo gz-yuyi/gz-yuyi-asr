@@ -65,6 +65,29 @@ export function formatBrowserDuration(seconds) {
   return formatBrowserTime(Number(seconds));
 }
 
+export function formatBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) return '-';
+  if (value < 1024) return `${Math.round(value)} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let size = value / 1024;
+  let unit = units[0];
+  for (let i = 1; i < units.length && size >= 1024; i += 1) {
+    size /= 1024;
+    unit = units[i];
+  }
+  return `${size >= 10 ? size.toFixed(1) : size.toFixed(2)} ${unit}`;
+}
+
+export function formatUploadProgress(progress) {
+  if (progress?.done) return '上传完成，等待服务端处理...';
+  const loaded = formatBytes(progress?.loaded || 0);
+  if (progress?.lengthComputable) {
+    return `上传中 ${progress.percent}% · ${loaded} / ${formatBytes(progress.total)}`;
+  }
+  return `上传中 · 已发送 ${loaded}`;
+}
+
 export function speakerScoreText(score) {
   if (score == null || score === '') return '-';
   const value = Number(score);

@@ -1,8 +1,8 @@
 import { $ } from '../core/dom.js';
 import { state } from '../core/state.js';
-import { httpBinary, httpJson, dataOrNull, downloadFile, summarizeHttpResponse } from '../core/api.js';
+import { httpJson, httpUpload, dataOrNull, downloadFile, summarizeHttpResponse } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
-import { buildQuery, esc, parseListInput, pretty } from '../core/format.js';
+import { buildQuery, esc, formatBytes, formatUploadProgress, parseListInput, pretty } from '../core/format.js';
 import { toast } from '../core/toast.js';
 import { refreshHotwordList } from './hotwords.js';
 
@@ -99,7 +99,7 @@ async function createOfflineTask() {
 
 function updateUploadStatus() {
   const file = $('uploadFile').files[0];
-  $('uploadStatus').value = file ? `${file.name} · ${Math.ceil(file.size / 1024)} KB` : '未选择文件';
+  $('uploadStatus').value = file ? `${file.name} · ${formatBytes(file.size)}` : '未选择文件';
 }
 
 async function uploadAndCreateTask() {
@@ -122,18 +122,25 @@ async function uploadAndCreateTask() {
     SpeakerProfileIds: parseListInput($('offlineSpeakerProfileIds').value),
   });
   try {
-    $('uploadStatus').value = '上传中...';
+    const uploadBtn = $('uploadCreateBtn');
+    uploadBtn.disabled = true;
+    $('uploadStatus').value = '准备上传...';
     appendLog(logEl, `上传并创建任务: ${file.name} (${file.size} bytes)`, 'log-sent', 'info');
-    const res = await httpBinary(`/api/asr/create_task_upload${query}`, {
+    const res = await httpUpload(`/api/asr/create_task_upload${query}`, {
       body: file,
       contentType: file.type || 'application/octet-stream',
+      onProgress: progress => {
+        $('uploadStatus').value = formatUploadProgress(progress);
+      },
     });
-    $('uploadStatus').value = res.ok ? '已上传并创建任务' : '上传失败';
+    $('uploadStatus').value = dataOrNull(res)?.TaskId ? '已上传并创建任务' : '上传失败';
     await handleCreatedOfflineTask(res, logEl);
   } catch (err) {
     $('uploadStatus').value = '上传失败';
     appendLog(logEl, `上传失败: ${err.message}`, 'log-err', 'error');
     toast(`上传失败: ${err.message}`, 'error');
+  } finally {
+    $('uploadCreateBtn').disabled = false;
   }
 }
 
