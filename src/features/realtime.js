@@ -12,6 +12,8 @@ const realtime = {
   messages: 0,
   segments: new Map(),
   supersededSegments: new Set(),
+  deletedRevisions: new Map(),
+  typewriterSegment: null,
   previewAudioBuffer: null,
   previewSource: null,
   previewCtx: null,
@@ -345,14 +347,18 @@ function clearRealtimeState() {
   realtime.messages = 0;
   realtime.segments.clear();
   realtime.supersededSegments.clear();
+  realtime.deletedRevisions.clear();
+  realtime.typewriterSegment = null;
   updateStats();
   updateProgress();
+  updateTypewriterPreview();
   rebuildSegments();
   $('realtimeLog').innerHTML = '';
 }
 
 async function sendAudio(file) {
   const mode = $('streamMode').value;
+  const audioEncoding = $('audioEncoding').value;
   const ws = realtime.ws;
   const chunkMs = Math.max(1, Number($('chunkMs').value || 100));
   const sleepMs = Math.max(0, Number($('sleepMs').value || 0));
@@ -398,6 +404,9 @@ async function sendAudio(file) {
       updateStats();
       updateProgress();
     } else {
+      if (audioEncoding !== 'pcm_s16le') {
+        throw new Error('原始文件分块只支持 PCM16LE；WAV/MP3/M4A/OPUS 请使用浏览器解码 PCM 或原始文件一次性发送');
+      }
       const bytes = new Uint8Array(await file.arrayBuffer());
       const rawChunkBytes = Math.max(1024, Number($('rawChunkBytes').value || 65536));
       realtime.totalChunks = Math.ceil(bytes.length / rawChunkBytes);
@@ -425,10 +434,45 @@ async function sendAudio(file) {
   }
 }
 
+function isTypewriterSegment(seg) {
+  const segmentId = seg?.segment_id || '';
+  return segmentId.startsWith('typing_');
+}
+
+function rememberDeletedRevision(segmentId, revision) {
+  if (!segmentId) return;
+  const current = realtime.deletedRevisions.get(segmentId) ?? 0;
+  realtime.deletedRevisions.set(segmentId, Math.max(current, revision ?? 0));
+}
+
+function isDeletedOrStale(seg) {
+  const segmentId = seg?.segment_id || '';
+  if (!segmentId) return false;
+  const deletedRevision = realtime.deletedRevisions.get(segmentId);
+  return deletedRevision != null && (seg.revision ?? 0) <= deletedRevision;
+}
+
+function updateTypewriterPreview() {
+  const seg = realtime.typewriterSegment;
+  const textEl = $('typewriterText');
+  const metaEl = $('typewriterMeta');
+  if (!seg || !seg.text) {
+    textEl.textContent = '等待实时预览...';
+    textEl.classList.add('empty');
+    metaEl.textContent = '等待实时预览...';
+    return;
+  }
+  textEl.textContent = seg.text;
+  textEl.classList.remove('empty');
+  metaEl.textContent = `${seg.segment_id || ''} · rev ${seg.revision ?? ''} · ${seg.source || ''}`;
+}
+
 function rebuildSegments() {
   const rows = [...realtime.segments.values()]
     .filter(seg => !realtime.supersededSegments.has(seg.segment_id || ''))
     .filter(seg => !seg.segment_deleted)
+    .filter(seg => !isTypewriterSegment(seg))
+    .filter(seg => !isDeletedOrStale(seg))
     .sort((a, b) => (a.start_ms ?? 0) - (b.start_ms ?? 0));
 
   if (rows.length === 0) {
@@ -458,6 +502,45 @@ function rebuildSegments() {
   }).join('');
 }
 
+function handleTranscriptUpdate(json) {
+  if (json.supersedes_segment_id) realtime.supersededSegments.add(json.supersedes_segment_id);
+  const segmentId = json.segment_id || '';
+  const revision = json.revision ?? 0;
+  const current = isTypewriterSegment(json)
+    ? realtime.typewriterSegment
+    : realtime.segments.get(segmentId);
+
+  if (json.segment_deleted) {
+    rememberDeletedRevision(segmentId, revision);
+    rememberDeletedRevision(json.supersedes_segment_id, revision);
+    if (isTypewriterSegment(json)) {
+      if (!current || revision >= (current.revision ?? 0)) {
+        realtime.typewriterSegment = null;
+        updateTypewriterPreview();
+      }
+    } else if (!current || revision >= (current.revision ?? 0)) {
+      realtime.segments.delete(segmentId);
+      rebuildSegments();
+    }
+    return;
+  }
+
+  if (isDeletedOrStale(json)) return;
+
+  if (isTypewriterSegment(json)) {
+    if (!current || revision >= (current.revision ?? 0)) {
+      realtime.typewriterSegment = json;
+      updateTypewriterPreview();
+    }
+    return;
+  }
+
+  if (!current || revision >= (current.revision ?? 0)) {
+    realtime.segments.set(segmentId, json);
+    rebuildSegments();
+  }
+}
+
 function setupWsHandlers(ws) {
   ws.onmessage = event => {
     realtime.messages++;
@@ -475,21 +558,7 @@ function setupWsHandlers(ws) {
       json.type === 'ErrorResponse' ? 'error' : 'info',
     );
     appendLogRaw($('realtimeLog'), pretty(json), 'log-recv', 'debug');
-    if (json.type === 'TranscriptUpdate') {
-      if (json.supersedes_segment_id) realtime.supersededSegments.add(json.supersedes_segment_id);
-      const current = realtime.segments.get(json.segment_id);
-      if (json.segment_deleted) {
-        if (!current || (json.revision ?? 0) >= (current.revision ?? 0)) {
-          realtime.segments.delete(json.segment_id);
-          rebuildSegments();
-        }
-        return;
-      }
-      if (!current || (json.revision ?? 0) >= (current.revision ?? 0)) {
-        realtime.segments.set(json.segment_id, json);
-        rebuildSegments();
-      }
-    }
+    if (json.type === 'TranscriptUpdate') handleTranscriptUpdate(json);
   };
   ws.onerror = () => {
     setWsStatus('连接错误', 'error');
@@ -725,6 +794,7 @@ export function registerRealtime() {
   registerSourceTabs();
   updateStats();
   updateProgress();
+  updateTypewriterPreview();
   $('realtimeFile').addEventListener('change', handleRealtimeFileChange);
   $('playAudioBtn').addEventListener('click', playPreviewAudio);
   $('stopAudioBtn').addEventListener('click', stopPreviewAudio);
@@ -777,6 +847,9 @@ export function registerRealtime() {
   $('clearSegBtn').addEventListener('click', () => {
     realtime.segments.clear();
     realtime.supersededSegments.clear();
+    realtime.deletedRevisions.clear();
+    realtime.typewriterSegment = null;
+    updateTypewriterPreview();
     rebuildSegments();
   });
   $('clearRealtimeLogBtn').addEventListener('click', () => { $('realtimeLog').innerHTML = ''; });
