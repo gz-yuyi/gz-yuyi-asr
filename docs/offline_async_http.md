@@ -50,6 +50,7 @@
 - `SpeakerId` 仍表示单个转写任务内的临时说话人编号；启用声纹识别后，会额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等注册声纹匹配字段
 - `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只用于限定匹配范围，不改变人员身份
 - 声纹 Profile 注册、管理和匹配策略详见 [声纹注册与识别 API](speaker_profiles_http.md)
+- 创建任务前会检查在线授权状态；授权未加载、已过期或无有效路数时直接返回 `FailedOperation.LicenseUnauthorized`，不会创建排队任务
 
 ### 请求示例（URL 方式）
 ```json
@@ -115,6 +116,19 @@
 }
 ```
 
+### 失败响应示例（授权失效）
+```json
+{
+  "Response": {
+    "RequestId": "...",
+    "Error": {
+      "Code": "FailedOperation.LicenseUnauthorized",
+      "Message": "license expired; refusing new offline tasks"
+    }
+  }
+}
+```
+
 ---
 
 ## 上传音频创建转写任务
@@ -123,6 +137,8 @@
 `POST /api/asr/create_task_upload`
 
 该接口用于直接上传音频文件并创建离线转写任务。请求体为原始二进制音频内容，服务端会把文件保存到托管工作目录后按本地路径任务处理。
+
+授权未加载、已过期或无有效路数时，该接口会在读取请求体前返回 `FailedOperation.LicenseUnauthorized`，不会保存上传文件或创建排队任务。
 
 ### 请求头
 | Header | 值 |
@@ -728,6 +744,7 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 | `MissingParameter` | 缺少必填参数 |
 | `FailedOperation.ErrorDownFile` | 音频下载/读取失败 |
 | `FailedOperation.ErrorRecognize` | 识别处理失败 |
+| `FailedOperation.LicenseUnauthorized` | 授权未加载、已过期或无有效路数，拒绝创建新的离线任务 |
 | `FailedOperation.NoSuchTask` | 任务不存在 |
 | `FailedOperation.NoSuchSpeakerProfile` | 声纹 Profile 不存在 |
 | `FailedOperation.SpeakerEnrollFailed` | 声纹注册失败 |

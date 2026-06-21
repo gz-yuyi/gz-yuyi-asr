@@ -1,6 +1,6 @@
 # 授权机制与调用流程
 
-当前项目使用 `src/yuyi_auth` 对接既有在线授权协议，并只用授权结果控制离线任务的同时处理路数。
+当前项目使用 `src/yuyi_auth` 对接既有在线授权协议，并用授权结果控制离线任务创建准入和同时处理路数。
 
 ## 授权协议
 
@@ -38,11 +38,12 @@
 ## 路数控制
 
 - `concurrency` 表示最多同时处理多少个离线任务
-- 提交任务只入库为 `queued`，不占路数，也不会因超出授权路数被拒绝
+- 提交离线任务前先检查授权是否有效；授权未加载、过期或路数小于等于 0 时，`create_task` 和 `create_task_upload` 返回 `FailedOperation.LicenseUnauthorized`，不会创建 `queued` 任务，也不会保存上传文件
+- 授权有效时，提交任务只入库为 `queued`，不占路数，也不会因为当前运行数已达到授权并发数被拒绝
 - worker claim 任务前检查授权是否有效
 - worker 只有在 `running` 任务数小于有效处理容量时才把 `queued` 任务切到 `running`
 - 有效处理容量为 `min(OFFLINE_ASR_MAX_AUDIO_JOBS, 授权 concurrency)`
-- 授权未加载、过期、路数小于等于 0 时，不再 claim 新任务，已有 `queued` 任务保持 pending
+- 授权失效后不再接收新的离线任务，也不再 claim 新任务；已有 `queued` 任务保持 pending
 - 通过环境变量加载的运行时默认强制授权；缺少 `service_url/product_id`、启动拉取失败、授权过期或授权路数为 0 都按 fail closed 处理
 
 ## 配置
