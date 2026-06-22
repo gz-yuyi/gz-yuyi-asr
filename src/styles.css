@@ -338,6 +338,10 @@
     .live-timeline {
       display: grid;
       gap: 8px;
+      height: clamp(220px, 42vh, 520px);
+      overflow: auto;
+      padding-right: 4px;
+      align-content: start;
     }
     .live-row {
       display: grid;
