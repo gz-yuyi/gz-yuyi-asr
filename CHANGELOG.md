@@ -11,6 +11,8 @@
 
 ## [Unreleased]
 
+## [v2.0.0] - 2026-06-23
+
 ### 变更
 
 - 离线转写接口文档补充授权失效时的创建任务拒收行为，明确 `create_task` 和 `create_task_upload` 返回 `FailedOperation.LicenseUnauthorized`，不会创建排队任务或保存上传文件。（关联 [yuyi-asr#9](https://github.com/gz-yuyi/yuyi-asr/issues/9)）
