@@ -506,4 +506,4 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 
 启用后，转写结果中的 `ResultDetail`、`SpeakerSegments` 和 `SpeakerProfileMatches` 会返回匹配到的注册声纹信息。由于 `SpeakerProfileId` 全局唯一，结果中默认只需要返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 和 `SpeakerMatchStatus`。
 
-实时 WebSocket 转写接口在 [realtime-websocket-api.md](realtime-websocket-api.md) 中维护，可通过 `enable_speaker_recognition`、`group_ids` 和 `speaker_profile_ids` 控制注册声纹识别。启用后，`TranscriptUpdate` 事件可返回 `speaker_profile_id`、`speaker_name`、`speaker_match_score` 和 `speaker_match_status`。实时接口仍然保留会话内临时 `speaker_id`，注册声纹字段只用于补充已知人员匹配结果。
+实时 WebSocket 转写接口在 [realtime-websocket-api.md](realtime-websocket-api.md) 中维护。实时接口当前不执行注册声纹识别；`enable_speaker_recognition`、`group_ids` 和 `speaker_profile_ids` 仅作为协议预留字段接收，不会返回注册声纹匹配结果。需要声纹识别时应使用离线异步转写任务。

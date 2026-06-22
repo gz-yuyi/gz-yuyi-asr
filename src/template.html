@@ -48,19 +48,13 @@
                 <label>发送模式</label>
                 <select id="streamMode">
                   <option value="decode_pcm">浏览器解码 PCM</option>
-                  <option value="raw_once">原始文件一次性</option>
-                  <option value="raw_chunked">原始文件分块</option>
+                  <option value="raw_chunked">裸 PCM16LE 分块</option>
                 </select>
               </div>
               <div class="fg c3">
                 <label>audio_encoding</label>
                 <select id="audioEncoding">
                   <option value="pcm_s16le">pcm_s16le</option>
-                  <option value="wav">wav</option>
-                  <option value="mp3">mp3</option>
-                  <option value="aac">aac</option>
-                  <option value="m4a">m4a</option>
-                  <option value="opus">opus</option>
                 </select>
               </div>
               <div class="fg c12">
@@ -114,7 +108,7 @@
           <div class="divider"></div>
           <div class="btn-row">
             <button class="btn-ghost" id="pingBtn">Ping</button>
-            <button class="btn-warn" id="stopBtn">Send Stop</button>
+            <button class="btn-warn" id="stopBtn">FinishSession</button>
             <button class="btn-danger" id="closeBtn">断开连接</button>
           </div>
         </div>
@@ -123,7 +117,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">流参数</div>
-              <div class="card-desc">控制分块、VAD、说话人分离、热词和文本规整参数</div>
+              <div class="card-desc">控制 PCM 分块、说话人、热词和文本规整参数</div>
             </div>
           </div>
 
@@ -152,25 +146,8 @@
               </select>
             </div>
             <div class="fg c2">
-              <label>refine_mode</label>
-              <select id="refineMode">
-                <option value="speaker_only" selected>speaker_only</option>
-                <option value="none">none</option>
-                <option value="asr_only">asr_only</option>
-                <option value="all">all</option>
-              </select>
-            </div>
-            <div class="fg c2">
               <label>speaker_num</label>
               <input id="speakerNum" type="number" placeholder="auto">
-            </div>
-            <div class="fg c2">
-              <label>vad_threshold</label>
-              <input id="vadThreshold" type="number" step="0.01" value="0.25">
-            </div>
-            <div class="fg c2">
-              <label>vad_min_silence (ms)</label>
-              <input id="vadMinSilence" type="number" value="500">
             </div>
             <div class="fg c4">
               <label>hotword_id</label>
@@ -211,37 +188,12 @@
           <div class="card-header">
             <div>
               <div class="card-title">转写结果</div>
-              <div class="card-desc">实时展示分段识别结果，<span class="badge badge-partial">partial</span> 为中间结果，<span class="badge badge-final">final</span> 为最终确认</div>
+              <div class="card-desc">同一条时间线展示 CTC 草稿和 Qwen ASR 最终文本，待精修 turn 只统计不占位</div>
             </div>
             <button class="btn-ghost compact-btn" id="clearSegBtn">清空</button>
           </div>
-          <div class="typewriter-preview" id="typewriterPreview">
-            <div class="preview-meta">
-              <span class="badge badge-partial">typewriter</span>
-              <span class="mono" id="typewriterMeta">等待实时预览...</span>
-            </div>
-            <div class="preview-text" id="typewriterText">等待实时预览...</div>
-          </div>
-          <div class="table-scroll">
-            <table class="seg-table">
-              <thead>
-                <tr>
-                  <th>状态</th>
-                  <th>Segment ID</th>
-                  <th>Parent</th>
-                  <th>Supersedes</th>
-                  <th>Rev</th>
-                  <th>Source</th>
-                  <th>Speaker</th>
-                  <th>Emotion</th>
-                  <th>Text</th>
-                </tr>
-              </thead>
-              <tbody id="segTbody">
-                <tr><td colspan="9" class="seg-empty">等待转写结果...</td></tr>
-              </tbody>
-            </table>
-          </div>
+          <div class="viewer-summary realtime-summary" id="realtimeSummary"></div>
+          <div class="live-timeline" id="realtimeTimeline"></div>
         </div>
 
         <div class="card">
