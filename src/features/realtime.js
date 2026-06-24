@@ -46,6 +46,7 @@ const SPEAKER_COLORS = [
 ];
 
 const DRAFT_FINALIZED_TOLERANCE_MS = 500;
+const TIMELINE_STICKY_BOTTOM_PX = 80;
 
 function summarizeRealtimeEvent(json) {
   const type = json.type || 'Unknown';
@@ -132,13 +133,19 @@ function speakerText(speakerId, state = '') {
   return `S${speakerId}`;
 }
 
-function latestDraft() {
+function sortedDrafts() {
   return [...realtime.drafts.values()]
     .sort((a, b) => {
-      const endDelta = (b.end_ms ?? 0) - (a.end_ms ?? 0);
+      const endDelta = Number(b.end_ms ?? b.start_ms ?? 0) - Number(a.end_ms ?? a.start_ms ?? 0);
       if (endDelta !== 0) return endDelta;
+      const startDelta = Number(b.start_ms ?? 0) - Number(a.start_ms ?? 0);
+      if (startDelta !== 0) return startDelta;
       return (b.revision ?? 0) - (a.revision ?? 0);
-    })[0] || null;
+    });
+}
+
+function latestDraft() {
+  return sortedDrafts()[0] || null;
 }
 
 function sortedFinals() {
@@ -146,16 +153,49 @@ function sortedFinals() {
     .sort((a, b) => (a.start_ms ?? 0) - (b.start_ms ?? 0));
 }
 
+function segmentIndex(segmentId) {
+  const match = String(segmentId || '').match(/^seg_(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
 function finalizedUntilMs(finals) {
+  const indexed = finals
+    .map(final => ({
+      index: segmentIndex(final.segment_id),
+      endMs: Number(final.end_ms),
+    }))
+    .filter(item => Number.isInteger(item.index) && Number.isFinite(item.endMs));
+  const firstIndex = indexed.some(item => item.index === 0)
+    ? 0
+    : (indexed.some(item => item.index === 1) ? 1 : null);
+
+  if (firstIndex != null) {
+    let expected = firstIndex;
+    let watermark = 0;
+    for (const item of indexed.sort((a, b) => a.index - b.index)) {
+      if (item.index < expected) {
+        watermark = Math.max(watermark, item.endMs);
+        continue;
+      }
+      if (item.index > expected) break;
+      watermark = Math.max(watermark, item.endMs);
+      expected = item.index + 1;
+    }
+    return watermark;
+  }
+
   return finals.reduce((maxEnd, final) => {
     const endMs = Number(final.end_ms);
     return Number.isFinite(endMs) ? Math.max(maxEnd, endMs) : maxEnd;
   }, 0);
 }
 
-function draftBaseline(finalizedEndMs) {
+function draftBaseline(finalizedEndMs, draftId) {
   return realtime.draftHistory
-    .filter(item => Number(item.end_ms ?? 0) <= finalizedEndMs + DRAFT_FINALIZED_TOLERANCE_MS)
+    .filter(item => {
+      if (draftId != null && item.draft_id !== draftId) return false;
+      return Number(item.end_ms ?? 0) <= finalizedEndMs + DRAFT_FINALIZED_TOLERANCE_MS;
+    })
     .sort((a, b) => {
       const endDelta = (b.end_ms ?? 0) - (a.end_ms ?? 0);
       if (endDelta !== 0) return endDelta;
@@ -180,22 +220,40 @@ function removeDraftBaselineText(text, baselineText) {
 
 function visibleDraft(finals = sortedFinals()) {
   if (realtime.completed) return null;
-  const draft = latestDraft();
-  if (!draft?.text) return null;
-  const draftEndMs = Number(draft.end_ms ?? draft.start_ms ?? 0);
   const finalizedEndMs = finalizedUntilMs(finals);
-  if (draftEndMs <= finalizedEndMs + DRAFT_FINALIZED_TOLERANCE_MS) {
-    return null;
+  for (const draft of sortedDrafts()) {
+    const text = (draft.text || '').trim();
+    if (!text) continue;
+
+    const draftStartMs = Number(draft.start_ms ?? 0);
+    const draftEndMs = Number(draft.end_ms ?? draft.start_ms ?? 0);
+    if (!Number.isFinite(draftEndMs) || draftEndMs <= finalizedEndMs + DRAFT_FINALIZED_TOLERANCE_MS) {
+      continue;
+    }
+
+    if (finalizedEndMs <= 0 || draftStartMs >= finalizedEndMs - DRAFT_FINALIZED_TOLERANCE_MS) {
+      return { ...draft, text };
+    }
+
+    const baseline = draftBaseline(finalizedEndMs, draft.draft_id);
+    if (!baseline) {
+      return {
+        ...draft,
+        start_ms: Math.max(Number.isFinite(draftStartMs) ? draftStartMs : 0, finalizedEndMs),
+        text,
+      };
+    }
+
+    const visibleText = removeDraftBaselineText(text, baseline.text || '');
+    if (visibleText) {
+      return {
+        ...draft,
+        start_ms: Math.max(Number.isFinite(draftStartMs) ? draftStartMs : 0, finalizedEndMs),
+        text: visibleText,
+      };
+    }
   }
-  if (finalizedEndMs <= 0) return draft;
-  const baseline = draftBaseline(finalizedEndMs);
-  const visibleText = removeDraftBaselineText(draft.text || '', baseline?.text || '');
-  if (!visibleText) return null;
-  return {
-    ...draft,
-    start_ms: Math.max(Number(draft.start_ms ?? 0), finalizedEndMs),
-    text: visibleText,
-  };
+  return null;
 }
 
 function turnCoveredByFinal(turn, finals) {
@@ -676,7 +734,22 @@ function draftCard(draft) {
   `;
 }
 
+function shouldStickToTimelineBottom(timeline) {
+  if (!timeline) return false;
+  const distanceToBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
+  return distanceToBottom <= TIMELINE_STICKY_BOTTOM_PX;
+}
+
+function stickTimelineToBottom(timeline) {
+  if (!timeline) return;
+  requestAnimationFrame(() => {
+    timeline.scrollTop = timeline.scrollHeight;
+  });
+}
+
 function renderRealtimeTimeline() {
+  const timeline = $('realtimeTimeline');
+  const stickToBottom = shouldStickToTimelineBottom(timeline);
   const finals = sortedFinals();
   const draft = visibleDraft(finals);
   const rows = [
@@ -691,9 +764,12 @@ function renderRealtimeTimeline() {
     const rank = { final: 0, draft: 1 };
     return rank[a.kind] - rank[b.kind];
   });
-  $('realtimeTimeline').innerHTML = rows.length
+  timeline.innerHTML = rows.length
     ? rows.map(row => row.html).join('')
     : '<div class="empty-state compact-empty">等待 DraftTranscript / FinalTranscript</div>';
+  if (stickToBottom) {
+    stickTimelineToBottom(timeline);
+  }
 }
 
 function renderRealtimeResults() {
