@@ -11,6 +11,13 @@
 
 ## [Unreleased]
 
+## [v2.1.0] - 2026-06-30
+
+### 新增
+
+- 离线转写接口文档新增离线重叠说话检测、任务级说话人聚类参数、VAD/字词时间戳对齐 ASR 切段模式和 RTTM 下载格式说明。
+- 离线转写结果文档新增调试产物 `Artifacts` 字段，覆盖 VAD、subsegment、ASR segment、speaker RTTM、embedding 统计和 diarization 摘要产物。
+
 ## [v2.0.2] - 2026-06-25
 
 ### 变更
