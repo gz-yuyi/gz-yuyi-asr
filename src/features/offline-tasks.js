@@ -54,6 +54,44 @@ function speakerRecognitionValue() {
   return null;
 }
 
+function optionalSelectValue(id) {
+  const value = $(id)?.value?.trim() || '';
+  return value || undefined;
+}
+
+function optionalNumberValue(id) {
+  const raw = $(id)?.value?.trim() || '';
+  if (!raw) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function offlineSpeakerAdvancedOptions() {
+  const options = {};
+  const overlap = optionalSelectValue('offlineEnableSpeakerOverlap');
+  if (overlap === 'true') options.EnableSpeakerOverlap = true;
+  if (overlap === 'false') options.EnableSpeakerOverlap = false;
+
+  const numberFields = {
+    SpeakerNum: 'offlineSpeakerNum',
+    SpeakerClusterMergeCosineThreshold: 'offlineSpeakerClusterMergeCosineThreshold',
+    SpeakerClusterPValue: 'offlineSpeakerClusterPValue',
+    SpeakerClusterMinNumSpeakers: 'offlineSpeakerClusterMinNumSpeakers',
+    SpeakerClusterMaxNumSpeakers: 'offlineSpeakerClusterMaxNumSpeakers',
+    SpeakerClusterMinClusterSize: 'offlineSpeakerClusterMinClusterSize',
+  };
+  Object.entries(numberFields).forEach(([key, id]) => {
+    const value = optionalNumberValue(id);
+    if (value !== undefined) options[key] = value;
+  });
+
+  const clusterType = optionalSelectValue('offlineSpeakerClusterType');
+  if (clusterType) options.SpeakerClusterType = clusterType;
+  const segmentationMode = optionalSelectValue('offlineAsrSegmentationMode');
+  if (segmentationMode) options.AsrSegmentationMode = segmentationMode;
+  return options;
+}
+
 async function handleCreatedOfflineTask(res, logEl) {
   appendLog(logEl, summarizeHttpResponse(res), res.ok ? 'log-recv' : 'log-err', 'info');
   appendLogRaw(logEl, pretty(res.json || res.text), res.ok ? 'log-recv' : 'log-err', 'debug');
@@ -87,6 +125,7 @@ async function createOfflineTask() {
   if (recognition !== null) payload.EnableSpeakerRecognition = recognition;
   if (groupIds.length) payload.GroupIds = groupIds;
   if (profileIds.length) payload.SpeakerProfileIds = profileIds;
+  Object.assign(payload, offlineSpeakerAdvancedOptions());
   try {
     appendLog(logEl, '创建任务...', 'log-sent', 'info');
     const res = await httpJson('/api/asr/create_task', { method: 'POST', body: payload });
@@ -120,6 +159,7 @@ async function uploadAndCreateTask() {
     EnableSpeakerRecognition: speakerRecognitionValue(),
     GroupIds: parseListInput($('offlineSpeakerGroupIds').value),
     SpeakerProfileIds: parseListInput($('offlineSpeakerProfileIds').value),
+    ...offlineSpeakerAdvancedOptions(),
   });
   try {
     const uploadBtn = $('uploadCreateBtn');
@@ -246,5 +286,6 @@ export function registerOfflineTasks() {
   $('cancelTaskBtn').addEventListener('click', cancelTask);
   $('downloadJsonBtn').addEventListener('click', () => downloadTask('json'));
   $('downloadTextBtn').addEventListener('click', () => downloadTask('txt'));
+  $('downloadRttmBtn').addEventListener('click', () => downloadTask('rttm'));
   $('clearOfflineLogBtn').addEventListener('click', () => { $('offlineLog').innerHTML = ''; });
 }

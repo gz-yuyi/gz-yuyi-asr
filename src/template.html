@@ -292,6 +292,65 @@
               <label>SpeakerProfileIds</label>
               <textarea id="offlineSpeakerProfileIds" rows="2" placeholder="可选，逗号或换行分隔；空表示匹配组内全部 active profile"></textarea>
             </div>
+            <div class="fg c12">
+              <details class="advanced-panel">
+                <summary>说话人分离高级参数（创建任务和上传创建任务共用）</summary>
+                <div class="form-grid">
+                  <div class="fg c3">
+                    <label>EnableSpeakerOverlap</label>
+                    <select id="offlineEnableSpeakerOverlap">
+                      <option value="" selected>服务端默认</option>
+                      <option value="true">true - 开启重叠说话修正</option>
+                      <option value="false">false - 关闭</option>
+                    </select>
+                  </div>
+                  <div class="fg c3">
+                    <label>SpeakerNum</label>
+                    <input id="offlineSpeakerNum" type="number" min="1" step="1" placeholder="已知说话人数，空为自动">
+                  </div>
+                  <div class="fg c3">
+                    <label>SpeakerClusterType</label>
+                    <select id="offlineSpeakerClusterType">
+                      <option value="" selected>服务端默认</option>
+                      <option value="spectral">spectral</option>
+                      <option value="AHC">AHC</option>
+                      <option value="umap_hdbscan">umap_hdbscan</option>
+                    </select>
+                  </div>
+                  <div class="fg c3">
+                    <label>AsrSegmentationMode</label>
+                    <select id="offlineAsrSegmentationMode">
+                      <option value="" selected>服务端默认</option>
+                      <option value="speaker_turn">speaker_turn - 按说话人 turn 切段</option>
+                      <option value="vad_word_align">vad_word_align - VAD/字词时间戳对齐</option>
+                    </select>
+                  </div>
+                  <div class="fg c3">
+                    <label>SpeakerClusterMergeCosineThreshold</label>
+                    <input id="offlineSpeakerClusterMergeCosineThreshold" type="number" min="0.0001" max="1" step="0.01" placeholder="(0, 1]">
+                  </div>
+                  <div class="fg c3">
+                    <label>SpeakerClusterPValue</label>
+                    <input id="offlineSpeakerClusterPValue" type="number" min="0.0001" max="0.9999" step="0.01" placeholder="(0, 1)">
+                  </div>
+                  <div class="fg c2">
+                    <label>MinNumSpeakers</label>
+                    <input id="offlineSpeakerClusterMinNumSpeakers" type="number" min="1" step="1" placeholder="下限">
+                  </div>
+                  <div class="fg c2">
+                    <label>MaxNumSpeakers</label>
+                    <input id="offlineSpeakerClusterMaxNumSpeakers" type="number" min="1" step="1" placeholder="上限">
+                  </div>
+                  <div class="fg c2">
+                    <label>MinClusterSize</label>
+                    <input id="offlineSpeakerClusterMinClusterSize" type="number" min="1" step="1" placeholder="小簇大小">
+                  </div>
+                  <div class="fg c12 card-desc">
+                    留空表示不传该参数，使用服务端配置。<code>SpeakerNum</code> 会同时约束最小和最大说话人数。
+                  </div>
+                </div>
+              </details>
+            </div>
           </div>
           <div class="btn-row">
             <button class="btn-primary" id="createOfflineBtn">创建任务</button>
@@ -343,6 +402,7 @@
             <button class="btn-danger" id="cancelTaskBtn">取消任务</button>
             <button class="btn-ghost" id="downloadJsonBtn">下载 JSON</button>
             <button class="btn-ghost" id="downloadTextBtn">下载文本</button>
+            <button class="btn-ghost" id="downloadRttmBtn">下载 RTTM</button>
           </div>
         </div>
 
