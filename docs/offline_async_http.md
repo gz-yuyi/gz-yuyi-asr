@@ -37,6 +37,15 @@
 | `EnableSpeakerRecognition` | bool | 否 | 是否启用已注册声纹识别；不传则使用服务端默认配置 |
 | `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID；不传或空数组表示匹配默认组 `default` |
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的全局人员 ID；不传或空数组表示匹配指定组内全部启用声纹 |
+| `EnableSpeakerOverlap` | bool | 否 | 是否启用离线重叠说话检测与修正；不传则使用服务端默认配置。启用后 `SpeakerSegments` 可能出现时间重叠 |
+| `SpeakerNum` | int | 否 | 本次任务已知说话人数；传入后聚类按该人数约束 |
+| `SpeakerClusterType` | string | 否 | 本次任务说话人聚类算法：`spectral`、`AHC`、`umap_hdbscan` |
+| `SpeakerClusterMergeCosineThreshold` | number | 否 | 本次任务相似说话人簇合并阈值，范围 `(0, 1]` |
+| `SpeakerClusterPValue` | number | 否 | 本次任务 spectral clustering 的 p-pruning 参数，范围 `(0, 1)` |
+| `SpeakerClusterMinNumSpeakers` | int | 否 | 本次任务自动估计说话人数下限 |
+| `SpeakerClusterMaxNumSpeakers` | int | 否 | 本次任务自动估计说话人数上限 |
+| `SpeakerClusterMinClusterSize` | int | 否 | 本次任务小簇重分配前的最小簇大小 |
+| `AsrSegmentationMode` | string | 否 | ASR 切段模式：`speaker_turn`=按说话人 turn 切段；`vad_word_align`=按 VAD/长窗转写后用字词时间戳对齐说话人 |
 | `NumberNormalizationMode` | int | 否 | 数字转换模式：`0/1/3`，默认 `1` |
 | `FillerFilterMode` | int | 否 | 语气词过滤模式：`0/1/2`，默认 `0` |
 | `ProfanityFilterMode` | int | 否 | 脏词过滤模式：`0/1/2`，默认 `0` |
@@ -50,6 +59,7 @@
 - `SpeakerId` 仍表示单个转写任务内的临时说话人编号；启用声纹识别后，会额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等注册声纹匹配字段
 - `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只用于限定匹配范围，不改变人员身份
 - 声纹 Profile 注册、管理和匹配策略详见 [声纹注册与识别 API](speaker_profiles_http.md)
+- 创建任务前会检查在线授权状态；授权未加载、已过期或无有效路数时直接返回 `FailedOperation.LicenseUnauthorized`，不会创建排队任务
 
 ### 请求示例（URL 方式）
 ```json
@@ -62,6 +72,10 @@
   "EnableSpeakerRecognition": true,
   "GroupIds": ["customer_service"],
   "SpeakerProfileIds": ["spk_zhangsan", "spk_lisi"],
+  "EnableSpeakerOverlap": true,
+  "SpeakerNum": 2,
+  "SpeakerClusterType": "spectral",
+  "AsrSegmentationMode": "vad_word_align",
   "NumberNormalizationMode": 1,
   "FillerFilterMode": 0,
   "ProfanityFilterMode": 0
@@ -115,6 +129,19 @@
 }
 ```
 
+### 失败响应示例（授权失效）
+```json
+{
+  "Response": {
+    "RequestId": "...",
+    "Error": {
+      "Code": "FailedOperation.LicenseUnauthorized",
+      "Message": "license expired; refusing new offline tasks"
+    }
+  }
+}
+```
+
 ---
 
 ## 上传音频创建转写任务
@@ -123,6 +150,8 @@
 `POST /api/asr/create_task_upload`
 
 该接口用于直接上传音频文件并创建离线转写任务。请求体为原始二进制音频内容，服务端会把文件保存到托管工作目录后按本地路径任务处理。
+
+授权未加载、已过期或无有效路数时，该接口会在读取请求体前返回 `FailedOperation.LicenseUnauthorized`，不会保存上传文件或创建排队任务。
 
 ### 请求头
 | Header | 值 |
@@ -139,6 +168,15 @@
 | `EnableSpeakerRecognition` | bool | 否 | 是否启用已注册声纹识别；不传则使用服务端默认配置 |
 | `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID |
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的全局人员 ID |
+| `EnableSpeakerOverlap` | bool | 否 | 是否启用离线重叠说话检测与修正 |
+| `SpeakerNum` | int | 否 | 本次任务已知说话人数 |
+| `SpeakerClusterType` | string | 否 | 本次任务说话人聚类算法：`spectral`、`AHC`、`umap_hdbscan` |
+| `SpeakerClusterMergeCosineThreshold` | number | 否 | 本次任务相似说话人簇合并阈值，范围 `(0, 1]` |
+| `SpeakerClusterPValue` | number | 否 | 本次任务 spectral clustering 的 p-pruning 参数，范围 `(0, 1)` |
+| `SpeakerClusterMinNumSpeakers` | int | 否 | 本次任务自动估计说话人数下限 |
+| `SpeakerClusterMaxNumSpeakers` | int | 否 | 本次任务自动估计说话人数上限 |
+| `SpeakerClusterMinClusterSize` | int | 否 | 本次任务小簇重分配前的最小簇大小 |
+| `AsrSegmentationMode` | string | 否 | ASR 切段模式：`speaker_turn` 或 `vad_word_align` |
 | `number_normalization_mode` | int | 否 | 数字转换模式：`0/1/3`，默认 `1` |
 | `filler_filter_mode` | int | 否 | 语气词过滤模式：`0/1/2`，默认 `0` |
 | `profanity_filter_mode` | int | 否 | 脏词过滤模式：`0/1/2`，默认 `0` |
@@ -219,7 +257,7 @@
 | `Response.Data.SpeakerProfileMatches[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `Response.Data.SpeakerProfileMatches[].SpeakerMatchScore` | number | 当前临时说话人与注册声纹的匹配分数 |
 | `Response.Data.SpeakerProfileMatches[].SpeakerMatchStatus` | string | `matched / unknown / disabled` |
-| `Response.Data.SpeakerSegments` | array | 按说话人切分后的时间段；启用声纹识别时可附带注册声纹匹配字段 |
+| `Response.Data.SpeakerSegments` | array | 按说话人切分后的时间段；启用声纹识别时可附带注册声纹匹配字段；启用 `EnableSpeakerOverlap` 时不同说话人的时间段可能重叠 |
 | `Response.Data.SpeakerSegments[].StartMs` | int | 说话人片段开始时间（毫秒） |
 | `Response.Data.SpeakerSegments[].EndMs` | int | 说话人片段结束时间（毫秒） |
 | `Response.Data.SpeakerSegments[].SpeakerId` | int | 当前任务内临时说话人 ID |
@@ -227,6 +265,7 @@
 | `Response.Data.SpeakerSegments[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `Response.Data.SpeakerSegments[].SpeakerMatchScore` | number | 声纹匹配分数 |
 | `Response.Data.SpeakerSegments[].SpeakerMatchStatus` | string | `matched / unknown / disabled` |
+| `Response.Data.Artifacts` | object | 任务调试产物路径集合，可能包含 `VadJson`、`SubsegmentsJson`、`AsrSegmentsJson`、`SpeakerSegmentsJson`、`SpeakerRttm`、`EmbeddingStatsJson`、`DiarizationDebugJson` |
 | `Response.Data.AudioDuration` | number | 音频时长（秒） |
 | `Response.Data.ErrorMsg` | string | 错误信息（失败时返回） |
 | `Response.Data.CallbackLastError` | string | 最近一次回调错误（有失败投递时返回） |
@@ -518,11 +557,12 @@
 | 参数名 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `TaskId` | int | 是 | 创建任务时返回的任务 ID |
-| `Format` | string | 否 | 下载格式，支持 `json / txt`，默认 `json` |
+| `Format` | string | 否 | 下载格式，支持 `json / txt / rttm`，默认 `json` |
 
 ### 成功响应
 - `Format=json`：返回 `application/json; charset=utf-8`，内容为任务结果 JSON。
 - `Format=txt`：返回 `text/plain; charset=utf-8`，内容为按行拼接的 `FinalSentence`。
+- `Format=rttm`：返回 `text/plain; charset=utf-8`，内容为离线说话人分离 RTTM；任务需要已生成 `SpeakerRttm` 调试产物。
 
 ---
 
@@ -728,6 +768,7 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 | `MissingParameter` | 缺少必填参数 |
 | `FailedOperation.ErrorDownFile` | 音频下载/读取失败 |
 | `FailedOperation.ErrorRecognize` | 识别处理失败 |
+| `FailedOperation.LicenseUnauthorized` | 授权未加载、已过期或无有效路数，拒绝创建新的离线任务 |
 | `FailedOperation.NoSuchTask` | 任务不存在 |
 | `FailedOperation.NoSuchSpeakerProfile` | 声纹 Profile 不存在 |
 | `FailedOperation.SpeakerEnrollFailed` | 声纹注册失败 |

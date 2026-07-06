@@ -1,7 +1,15 @@
 import { $, qsa } from '../core/dom.js';
-import { apiErrorMessage, dataOrNull, httpBinary, httpJson, summarizeHttpResponse } from '../core/api.js';
+import { apiErrorMessage, dataOrNull, httpJson, httpUpload, summarizeHttpResponse } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
-import { buildQuery, esc, pretty, speakerMsText, speakerScoreText } from '../core/format.js';
+import {
+  buildQuery,
+  esc,
+  formatBytes,
+  formatUploadProgress,
+  pretty,
+  speakerMsText,
+  speakerScoreText,
+} from '../core/format.js';
 import { toast } from '../core/toast.js';
 
 function speakerProfileId() {
@@ -94,10 +102,31 @@ function speakerBasePayload() {
 
 function renderEnrollmentSummary(item) {
   const parts = [];
-  if (item?.EffectiveSpeechMs != null) parts.push(`speech=${speakerMsText(item.EffectiveSpeechMs)}`);
-  if (item?.QualityScore != null) parts.push(`quality=${speakerScoreText(item.QualityScore)}`);
-  if (item?.CreatedAt) parts.push(`created=${item.CreatedAt}`);
+  if (item?.EffectiveSpeechMs != null) parts.push(`有效语音=${speakerMsText(item.EffectiveSpeechMs)}`);
+  if (item?.QualityScore != null) parts.push(`质量分=${speakerScoreText(item.QualityScore)}`);
+  if (item?.CreatedAt) parts.push(`创建时间=${item.CreatedAt}`);
   return parts.length ? parts.join(' · ') : '无更多信息';
+}
+
+function enrollmentCountText(count) {
+  const safeCount = Number(count);
+  if (!Number.isFinite(safeCount)) return '声纹样本 / prototype: -';
+  return `声纹样本 / prototype: ${safeCount}`;
+}
+
+function enrollmentQualityHint(item) {
+  if (item?.QualityScore == null || item?.QualityScore === '') {
+    return '质量分暂未返回；注册成功表示服务端已通过基础质量校验。';
+  }
+  return '质量分范围为 0 到 1，越高表示该样本内部一致性和有效语音覆盖越稳定。';
+}
+
+function enrollSuccessMessage(data) {
+  const count = Number(data?.PrototypeCount);
+  if (Number.isFinite(count) && count > 1) {
+    return `声纹已注册，生成 ${count} 个 prototype 样本`;
+  }
+  return '声纹样本已注册';
 }
 
 function profileFromResponse(res) {
@@ -132,11 +161,13 @@ function renderEnrollmentList(enrollments, profileId = '') {
   }
   return `
         <div class="enrollment-list">
+          <div class="enrollment-note">同一人员可能包含多个 prototype 样本，用于覆盖不同声学状态；这不表示识别出了多个人。</div>
           ${enrollments.map(item => `
             <div class="enrollment-item">
               <div class="profile-sub">
-                <div><span class="mono">${esc(item.EnrollmentId || '-')}</span></div>
+                <div>样本 ID: <span class="mono">${esc(item.EnrollmentId || '-')}</span></div>
                 <div>${esc(renderEnrollmentSummary(item))}</div>
+                <div class="enrollment-quality-hint">${esc(enrollmentQualityHint(item))}</div>
               </div>
               <button class="btn-danger delete-enrollment-item-btn" data-profile-id="${esc(profileId)}" data-enrollment-id="${esc(item.EnrollmentId || '')}">删除样本</button>
             </div>
@@ -165,7 +196,7 @@ function renderSpeakerProfiles(items) {
             <div class="profile-sub">
               <div>ProfileId: <span class="mono">${esc(profileId || '-')}</span></div>
               <div>${esc(renderProfileGroups(profile.Groups))}</div>
-              <div>样本数: ${esc(profile.EnrollmentCount ?? enrollments.length ?? 0)}</div>
+              <div>${esc(enrollmentCountText(profile.EnrollmentCount ?? enrollments.length ?? 0))}</div>
               ${profile.Description ? `<div>${esc(profile.Description)}</div>` : ''}
             </div>
             <div class="btn-row profile-actions">
@@ -378,11 +409,12 @@ function rememberEnrollment(res) {
   const enrollmentId = data?.EnrollmentId;
   if (enrollmentId) $('speakerEnrollmentId').value = enrollmentId;
   fillProfileIdentity(data?.SpeakerProfileId, data?.SpeakerName);
+  return data;
 }
 
 function updateSpeakerEnrollUploadStatus() {
   const file = $('speakerEnrollFile').files[0];
-  $('speakerEnrollUploadStatus').value = file ? `${file.name} · ${Math.ceil(file.size / 1024)} KB` : '未选择文件';
+  $('speakerEnrollUploadStatus').value = file ? `${file.name} · ${formatBytes(file.size)}` : '未选择文件';
 }
 
 async function uploadSpeakerEnrollment() {
@@ -406,21 +438,29 @@ async function uploadSpeakerEnrollment() {
     Filename: file.name,
   });
   try {
-    $('speakerEnrollUploadStatus').value = '上传注册中...';
+    const uploadBtn = $('uploadSpeakerEnrollBtn');
+    uploadBtn.disabled = true;
+    $('speakerEnrollUploadStatus').value = '准备上传...';
     appendLog($('speakerLog'), `上传注册声纹: ${file.name} (${file.size} bytes)`, 'log-sent', 'info');
-    const res = await httpBinary(`/api/speakers/enroll_upload${query}`, {
+    const res = await httpUpload(`/api/speakers/enroll_upload${query}`, {
       body: file,
       contentType: file.type || 'application/octet-stream',
+      onProgress: progress => {
+        $('speakerEnrollUploadStatus').value = formatUploadProgress(progress);
+      },
     });
     logSpeakerResponse(res, '上传注册');
-    rememberEnrollment(res);
-    $('speakerEnrollUploadStatus').value = '已注册';
-    toast('声纹已注册', 'success');
+    const data = rememberEnrollment(res);
+    const message = enrollSuccessMessage(data);
+    $('speakerEnrollUploadStatus').value = message;
+    toast(message, 'success');
     await loadSpeakerProfile(base.SpeakerProfileId);
   } catch (err) {
     $('speakerEnrollUploadStatus').value = '注册失败';
     appendLog($('speakerLog'), `上传注册失败: ${err.message}`, 'log-err', 'error');
     toast(`注册失败: ${err.message}`, 'error');
+  } finally {
+    $('uploadSpeakerEnrollBtn').disabled = false;
   }
 }
 
@@ -447,8 +487,8 @@ async function pathSpeakerEnrollment() {
     appendLog($('speakerLog'), 'URL / 本地路径注册声纹...', 'log-sent', 'info');
     const res = await httpJson('/api/speakers/enroll', { method: 'POST', body });
     logSpeakerResponse(res, 'URL / 本地路径注册');
-    rememberEnrollment(res);
-    toast('声纹已注册', 'success');
+    const data = rememberEnrollment(res);
+    toast(enrollSuccessMessage(data), 'success');
     await loadSpeakerProfile(body.SpeakerProfileId);
   } catch (err) {
     appendLog($('speakerLog'), `注册失败: ${err.message}`, 'log-err', 'error');

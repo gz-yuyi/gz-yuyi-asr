@@ -48,19 +48,13 @@
                 <label>发送模式</label>
                 <select id="streamMode">
                   <option value="decode_pcm">浏览器解码 PCM</option>
-                  <option value="raw_once">原始文件一次性</option>
-                  <option value="raw_chunked">原始文件分块</option>
+                  <option value="raw_chunked">裸 PCM16LE 分块</option>
                 </select>
               </div>
               <div class="fg c3">
                 <label>audio_encoding</label>
                 <select id="audioEncoding">
                   <option value="pcm_s16le">pcm_s16le</option>
-                  <option value="wav">wav</option>
-                  <option value="mp3">mp3</option>
-                  <option value="aac">aac</option>
-                  <option value="m4a">m4a</option>
-                  <option value="opus">opus</option>
                 </select>
               </div>
               <div class="fg c12">
@@ -114,7 +108,7 @@
           <div class="divider"></div>
           <div class="btn-row">
             <button class="btn-ghost" id="pingBtn">Ping</button>
-            <button class="btn-warn" id="stopBtn">Send Stop</button>
+            <button class="btn-warn" id="stopBtn">FinishSession</button>
             <button class="btn-danger" id="closeBtn">断开连接</button>
           </div>
         </div>
@@ -123,7 +117,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">流参数</div>
-              <div class="card-desc">控制分块、VAD、说话人分离、热词和文本规整参数</div>
+              <div class="card-desc">控制 PCM 分块、说话人、热词和文本规整参数</div>
             </div>
           </div>
 
@@ -152,25 +146,16 @@
               </select>
             </div>
             <div class="fg c2">
-              <label>refine_mode</label>
-              <select id="refineMode">
-                <option value="speaker_only" selected>speaker_only</option>
-                <option value="none">none</option>
-                <option value="asr_only">asr_only</option>
-                <option value="all">all</option>
-              </select>
-            </div>
-            <div class="fg c2">
               <label>speaker_num</label>
               <input id="speakerNum" type="number" placeholder="auto">
             </div>
             <div class="fg c2">
               <label>vad_threshold</label>
-              <input id="vadThreshold" type="number" step="0.01" value="0.25">
+              <input id="vadThreshold" type="number" step="0.05" placeholder="0.25">
             </div>
             <div class="fg c2">
-              <label>vad_min_silence (ms)</label>
-              <input id="vadMinSilence" type="number" value="500">
+              <label>vad 静音(ms)</label>
+              <input id="vadMinSilenceMs" type="number" placeholder="500">
             </div>
             <div class="fg c4">
               <label>hotword_id</label>
@@ -211,30 +196,12 @@
           <div class="card-header">
             <div>
               <div class="card-title">转写结果</div>
-              <div class="card-desc">实时展示分段识别结果，<span class="badge badge-partial">partial</span> 为中间结果，<span class="badge badge-final">final</span> 为最终确认</div>
+              <div class="card-desc">单事件流按 segment_id 增量渲染：草稿（识别中）与最终文本在同一行随修订更新，说话人作为更高修订回填</div>
             </div>
             <button class="btn-ghost compact-btn" id="clearSegBtn">清空</button>
           </div>
-          <div class="table-scroll">
-            <table class="seg-table">
-              <thead>
-                <tr>
-                  <th>状态</th>
-                  <th>Segment ID</th>
-                  <th>Parent</th>
-                  <th>Supersedes</th>
-                  <th>Rev</th>
-                  <th>Source</th>
-                  <th>Speaker</th>
-                  <th>Emotion</th>
-                  <th>Text</th>
-                </tr>
-              </thead>
-              <tbody id="segTbody">
-                <tr><td colspan="9" class="seg-empty">等待转写结果...</td></tr>
-              </tbody>
-            </table>
-          </div>
+          <div class="viewer-summary realtime-summary" id="realtimeSummary"></div>
+          <div class="live-timeline" id="realtimeTimeline"></div>
         </div>
 
         <div class="card">
@@ -333,6 +300,65 @@
               <label>SpeakerProfileIds</label>
               <textarea id="offlineSpeakerProfileIds" rows="2" placeholder="可选，逗号或换行分隔；空表示匹配组内全部 active profile"></textarea>
             </div>
+            <div class="fg c12">
+              <details class="advanced-panel">
+                <summary>说话人分离高级参数（创建任务和上传创建任务共用）</summary>
+                <div class="form-grid">
+                  <div class="fg c3">
+                    <label>EnableSpeakerOverlap</label>
+                    <select id="offlineEnableSpeakerOverlap">
+                      <option value="" selected>服务端默认</option>
+                      <option value="true">true - 开启重叠说话修正</option>
+                      <option value="false">false - 关闭</option>
+                    </select>
+                  </div>
+                  <div class="fg c3">
+                    <label>SpeakerNum</label>
+                    <input id="offlineSpeakerNum" type="number" min="1" step="1" placeholder="已知说话人数，空为自动">
+                  </div>
+                  <div class="fg c3">
+                    <label>SpeakerClusterType</label>
+                    <select id="offlineSpeakerClusterType">
+                      <option value="" selected>服务端默认</option>
+                      <option value="spectral">spectral</option>
+                      <option value="AHC">AHC</option>
+                      <option value="umap_hdbscan">umap_hdbscan</option>
+                    </select>
+                  </div>
+                  <div class="fg c3">
+                    <label>AsrSegmentationMode</label>
+                    <select id="offlineAsrSegmentationMode">
+                      <option value="" selected>服务端默认</option>
+                      <option value="speaker_turn">speaker_turn - 按说话人 turn 切段</option>
+                      <option value="vad_word_align">vad_word_align - VAD/字词时间戳对齐</option>
+                    </select>
+                  </div>
+                  <div class="fg c3">
+                    <label>SpeakerClusterMergeCosineThreshold</label>
+                    <input id="offlineSpeakerClusterMergeCosineThreshold" type="number" min="0.0001" max="1" step="0.01" placeholder="(0, 1]">
+                  </div>
+                  <div class="fg c3">
+                    <label>SpeakerClusterPValue</label>
+                    <input id="offlineSpeakerClusterPValue" type="number" min="0.0001" max="0.9999" step="0.01" placeholder="(0, 1)">
+                  </div>
+                  <div class="fg c2">
+                    <label>MinNumSpeakers</label>
+                    <input id="offlineSpeakerClusterMinNumSpeakers" type="number" min="1" step="1" placeholder="下限">
+                  </div>
+                  <div class="fg c2">
+                    <label>MaxNumSpeakers</label>
+                    <input id="offlineSpeakerClusterMaxNumSpeakers" type="number" min="1" step="1" placeholder="上限">
+                  </div>
+                  <div class="fg c2">
+                    <label>MinClusterSize</label>
+                    <input id="offlineSpeakerClusterMinClusterSize" type="number" min="1" step="1" placeholder="小簇大小">
+                  </div>
+                  <div class="fg c12 card-desc">
+                    留空表示不传该参数，使用服务端配置。<code>SpeakerNum</code> 会同时约束最小和最大说话人数。
+                  </div>
+                </div>
+              </details>
+            </div>
           </div>
           <div class="btn-row">
             <button class="btn-primary" id="createOfflineBtn">创建任务</button>
@@ -384,6 +410,7 @@
             <button class="btn-danger" id="cancelTaskBtn">取消任务</button>
             <button class="btn-ghost" id="downloadJsonBtn">下载 JSON</button>
             <button class="btn-ghost" id="downloadTextBtn">下载文本</button>
+            <button class="btn-ghost" id="downloadRttmBtn">下载 RTTM</button>
           </div>
         </div>
 
@@ -581,6 +608,7 @@
             <div>
               <div class="card-title">注册声纹样本</div>
               <div class="card-desc" id="speakerEnrollTargetText">先从列表选择人员，或创建人员后再上传音频</div>
+              <div class="card-desc speaker-enroll-help">一次注册音频可能生成多个 prototype 样本，用来覆盖同一人员的不同声学状态；这不是多个人。质量分范围为 0 到 1，越高表示样本越稳定，低一致性样本会被服务端拒绝。</div>
             </div>
           </div>
           <div class="form-grid">

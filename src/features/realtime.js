@@ -10,8 +10,11 @@ const realtime = {
   chunksSent: 0,
   totalChunks: 0,
   messages: 0,
-  segments: new Map(),
-  supersededSegments: new Set(),
+  session: null,
+  completed: null,
+  segments: new Map(),   // segment_id -> latest TranscriptUpdate
+  segNodes: new Map(),   // segment_id -> timeline row DOM node
+  errors: [],
   previewAudioBuffer: null,
   previewSource: null,
   previewCtx: null,
@@ -29,28 +32,42 @@ const realtime = {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+const SPEAKER_COLORS = [
+  '#60a5fa',
+  '#34d399',
+  '#fbbf24',
+  '#f472b6',
+  '#a78bfa',
+  '#fb7185',
+  '#2dd4bf',
+  '#f97316',
+];
+
+const TIMELINE_STICKY_BOTTOM_PX = 80;
+
 function summarizeRealtimeEvent(json) {
   const type = json.type || 'Unknown';
   if (type === 'SessionStarted') {
-    return `SessionStarted session=${json.session_id || ''}`;
+    const speaker = json.enable_speaker ? 'speaker=on' : 'speaker=off';
+    const pv = json.protocol_version != null ? ` pv=${json.protocol_version}` : '';
+    return `SessionStarted session=${json.session_id || ''} ${speaker}${pv}`;
   }
   if (type === 'SessionCompleted') {
-    return `SessionCompleted session=${json.session_id || ''}`;
+    return `SessionCompleted session=${json.session_id || ''} segments=${json.segment_count ?? ''}${json.canceled ? ' canceled' : ''}`;
   }
   if (type === 'ErrorResponse') {
-    return `ErrorResponse code=${json.code || ''} message=${json.message || ''}`;
+    return `ErrorResponse code=${json.code || ''} error=${json.error_code || ''} message=${json.message || ''}`;
   }
   if (type === 'TranscriptUpdate') {
     const seg = json.segment_id || '';
     const rev = json.revision ?? '';
-    const src = json.source || '';
     const spk = json.speaker_id != null ? ` speaker=${json.speaker_id}` : '';
-    const emo = json.emotion ? ` emotion=${json.emotion}` : '';
-    const parent = json.parent_segment_id ? ` parent=${json.parent_segment_id}` : '';
-    const supersedes = json.supersedes_segment_id ? ` supersedes=${json.supersedes_segment_id}` : '';
+    const flag = json.segment_deleted ? 'deleted' : (json.is_final ? 'final' : 'draft');
+    const time = formatMsRange(json.start_ms, json.end_ms);
     const preview = (json.text || '').slice(0, 80);
-    return `TranscriptUpdate seg=${seg} rev=${rev} source=${src}${spk}${emo}${parent}${supersedes} text=${preview}`;
+    return `TranscriptUpdate seg=${seg} rev=${rev} ${json.source || ''} ${flag}${spk} ${time} text=${preview}`;
   }
+  if (type === 'Pong') return 'Pong';
   return pretty(json);
 }
 
@@ -60,7 +77,14 @@ function setWsStatus(label, kind) {
 }
 
 function updateStats() {
-  $('statsLabel').textContent = `chunks: ${realtime.chunksSent} · messages: ${realtime.messages}`;
+  const segs = sortedSegments();
+  const finalCount = segs.filter(s => s.is_final).length;
+  $('statsLabel').textContent = [
+    `chunks: ${realtime.chunksSent}`,
+    `events: ${realtime.messages}`,
+    `segments: ${segs.length}`,
+    `final: ${finalCount}`,
+  ].join(' · ');
 }
 
 function updateProgress() {
@@ -68,6 +92,42 @@ function updateProgress() {
     ? Math.min(100, (realtime.chunksSent / realtime.totalChunks) * 100)
     : 0;
   $('sendProgressFill').style.width = `${pct}%`;
+}
+
+function formatMs(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value)) return '-';
+  const total = Math.max(0, value) / 1000;
+  const minutes = Math.floor(total / 60);
+  const seconds = total - minutes * 60;
+  return `${minutes}:${seconds.toFixed(2).padStart(5, '0')}`;
+}
+
+function formatMsRange(startMs, endMs) {
+  return `${formatMs(startMs)}-${formatMs(endMs)}`;
+}
+
+function speakerColor(speakerId) {
+  if (speakerId == null || speakerId === '') return '#71717a';
+  const index = Math.abs(Number(speakerId) || 0) % SPEAKER_COLORS.length;
+  return SPEAKER_COLORS[index];
+}
+
+function speakerText(speakerId, state = '') {
+  if (speakerId == null || speakerId === '') {
+    return state === 'disabled' ? '无说话人' : '未知说话人';
+  }
+  return `S${speakerId}`;
+}
+
+// One event stream keyed by segment_id. Draft (is_final:false) and final
+// (is_final:true) are the same segment at different revisions; speaker labels
+// and word timings arrive as higher revisions of the same segment. No
+// cross-stream reconciliation needed.
+function sortedSegments() {
+  return [...realtime.segments.values()]
+    .filter(seg => !seg.segment_deleted)
+    .sort((a, b) => (a.start_ms ?? 0) - (b.start_ms ?? 0));
 }
 
 function drawWaveform(canvas, audioBuffer, color = '#3b82f6') {
@@ -313,48 +373,89 @@ function stopPreviewAudio() {
 function buildWsUrl() {
   const raw = $('wsBase').value.trim();
   const url = new URL(raw);
-  const params = url.searchParams;
-  const audioEncoding = $('audioEncoding').value;
-  params.set('audio_encoding', audioEncoding);
-  params.set('sample_rate', audioEncoding === 'pcm_s16le' ? '16000' : ($('sampleRate').value || '16000'));
-  params.set('enable_speaker', $('enableSpeaker').value);
-  params.set('refine_mode', $('refineMode').value || 'speaker_only');
-
-  const optionals = [
-    ['speaker_num', 'speakerNum'],
-    ['vad_threshold', 'vadThreshold'],
-    ['vad_min_silence_duration_ms', 'vadMinSilence'],
-    ['hotword_id', 'realtimeHotwordId'],
-    ['context', 'realtimeContext'],
-    ['number_normalization_mode', 'realtimeNumberMode'],
-    ['filler_filter_mode', 'realtimeFillerMode'],
-    ['profanity_filter_mode', 'realtimeProfanityMode'],
-  ];
-  for (const [param, elId] of optionals) {
-    const value = $(elId).value.trim();
-    if (value) params.set(param, value);
-    else params.delete(param);
-  }
+  url.search = '';
   return url.toString();
+}
+
+function optionalText(elId) {
+  const value = $(elId).value.trim();
+  return value || null;
+}
+
+function optionalNumber(elId) {
+  const value = $(elId).value.trim();
+  if (!value) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function readNumberInput(elId, fallback, min = 0) {
+  const input = $(elId);
+  const raw = input.value.trim();
+  const parsed = raw === '' ? fallback : Number(raw);
+  const value = Number.isFinite(parsed) ? Math.max(min, parsed) : Math.max(min, fallback);
+  if (raw === '' || Number(raw) !== value) {
+    input.value = String(value);
+  }
+  return value;
+}
+
+function buildStartSessionPayload() {
+  const speakerNum = optionalNumber('speakerNum');
+  const vadThreshold = optionalNumber('vadThreshold');
+  const vadMinSilence = optionalNumber('vadMinSilenceMs');
+  const payload = {
+    type: 'StartSession',
+    audio_encoding: $('audioEncoding').value,
+    sample_rate: Number($('sampleRate').value || 16000),
+    hotword_id: optionalText('realtimeHotwordId'),
+    context: optionalText('realtimeContext'),
+    enable_speaker: $('enableSpeaker').value === 'true',
+    speaker_num: speakerNum,
+    number_normalization_mode: Number($('realtimeNumberMode').value || 1),
+    filler_filter_mode: Number($('realtimeFillerMode').value || 0),
+    profanity_filter_mode: Number($('realtimeProfanityMode').value || 0),
+  };
+  if (payload.speaker_num == null) delete payload.speaker_num;
+  if (vadThreshold != null) payload.vad_threshold = vadThreshold;
+  if (vadMinSilence != null) payload.vad_min_silence_duration_ms = vadMinSilence;
+  return payload;
+}
+
+function sendControl(type, detail = '') {
+  const ws = realtime.ws;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    toast('WebSocket 未连接', 'error');
+    return false;
+  }
+  const payload = { type };
+  ws.send(JSON.stringify(payload));
+  appendLog($('realtimeLog'), `>>> ${type}${detail ? ` (${detail})` : ''}`, 'log-sent', 'info');
+  return true;
 }
 
 function clearRealtimeState() {
   realtime.chunksSent = 0;
   realtime.totalChunks = 0;
   realtime.messages = 0;
+  realtime.session = null;
+  realtime.completed = null;
   realtime.segments.clear();
-  realtime.supersededSegments.clear();
+  realtime.segNodes.clear();
+  realtime.errors = [];
+  resetTimeline();
   updateStats();
   updateProgress();
-  rebuildSegments();
+  renderRealtimeSummary();
   $('realtimeLog').innerHTML = '';
 }
 
 async function sendAudio(file) {
   const mode = $('streamMode').value;
+  const audioEncoding = $('audioEncoding').value;
   const ws = realtime.ws;
-  const chunkMs = Math.max(1, Number($('chunkMs').value || 100));
-  const sleepMs = Math.max(0, Number($('sleepMs').value || 0));
+  const chunkMs = readNumberInput('chunkMs', 100, 1);
+  const sleepMs = readNumberInput('sleepMs', chunkMs, 0);
   const liveCanvas = $('liveWaveCanvas');
   const ctx = liveCanvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -378,7 +479,7 @@ async function sendAudio(file) {
       const chunkBytes = Math.max(2, Math.floor(chunkMs * bytesPerMs / 2) * 2);
       const bytes = new Uint8Array(pcm);
       realtime.totalChunks = Math.ceil(bytes.length / chunkBytes);
-      appendLog($('realtimeLog'), `解码完成，共 ${bytes.length} 字节，将分 ${realtime.totalChunks} 块发送`, 'log-info', 'info');
+      appendLog($('realtimeLog'), `解码完成，共 ${bytes.length} 字节，将分 ${realtime.totalChunks} 块发送，间隔 ${sleepMs}ms`, 'log-info', 'info');
       for (let off = 0; off < bytes.length; off += chunkBytes) {
         if (ws.readyState !== WebSocket.OPEN) throw new Error('WebSocket 已关闭');
         const chunk = bytes.slice(off, off + chunkBytes);
@@ -389,14 +490,10 @@ async function sendAudio(file) {
         updateProgress();
         if (sleepMs > 0) await sleep(sleepMs);
       }
-    } else if (mode === 'raw_once') {
-      const buf = await file.arrayBuffer();
-      ws.send(buf);
-      realtime.chunksSent = 1;
-      realtime.totalChunks = 1;
-      updateStats();
-      updateProgress();
     } else {
+      if (audioEncoding !== 'pcm_s16le') {
+        throw new Error('原始文件分块只支持裸 PCM16LE；WAV/MP3/M4A/OPUS 请使用浏览器解码 PCM');
+      }
       const bytes = new Uint8Array(await file.arrayBuffer());
       const rawChunkBytes = Math.max(1024, Number($('rawChunkBytes').value || 65536));
       realtime.totalChunks = Math.ceil(bytes.length / rawChunkBytes);
@@ -412,8 +509,7 @@ async function sendAudio(file) {
 
     appendLog($('realtimeLog'), `音频发送完成: ${file.name}`, 'log-sent', 'info');
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send('stop');
-      appendLog($('realtimeLog'), '>>> stop (文件发送完成后自动结束会话)', 'log-sent', 'info');
+      sendControl('FinishSession', '文件发送完成后自动结束会话');
     }
     toast('音频发送完成', 'success');
   } catch (err) {
@@ -424,36 +520,177 @@ async function sendAudio(file) {
   }
 }
 
-function rebuildSegments() {
-  const rows = [...realtime.segments.values()]
-    .filter(seg => !realtime.supersededSegments.has(seg.segment_id || ''))
-    .sort((a, b) => (a.start_ms ?? 0) - (b.start_ms ?? 0));
+function renderRealtimeSummary() {
+  const session = realtime.session || {};
+  const completed = realtime.completed || {};
+  const segs = sortedSegments();
+  const finalCount = segs.filter(s => s.is_final).length;
+  const draftCount = segs.filter(s => !s.is_final).length;
+  const speakers = new Set(
+    segs.filter(s => s.speaker_id != null && s.speaker_id !== '').map(s => String(s.speaker_id)),
+  );
+  const speakerValue = session.session_id
+    ? (session.enable_speaker ? `${speakers.size} 人` : 'disabled')
+    : '-';
+  const lastEnd = segs.reduce((max, s) => Math.max(max, Number(s.end_ms) || 0), 0);
+  const duration = completed.audio_duration_ms != null
+    ? formatMs(completed.audio_duration_ms)
+    : formatMs(lastEnd);
+  const items = [
+    ['Session', session.session_id || '-'],
+    ['最终', String(finalCount)],
+    ['识别中', String(draftCount)],
+    ['说话人', speakerValue],
+    ['时长', duration],
+  ];
+  $('realtimeSummary').innerHTML = items.map(([label, value]) => `
+    <div class="summary-cell">
+      <div class="summary-label">${esc(label)}</div>
+      <div class="summary-value">${esc(value)}</div>
+    </div>
+  `).join('');
+}
 
-  if (rows.length === 0) {
-    $('segTbody').innerHTML = '<tr><td colspan="9" class="seg-empty">等待转写结果...</td></tr>';
+// Inner HTML of one timeline row. A draft (is_final:false) and its final are
+// the same row at different revisions -- the row just restyles in place.
+function segmentRowInner(seg) {
+  const isFinal = !!seg.is_final;
+  const spkKnown = seg.speaker_id != null && seg.speaker_id !== '';
+  const speaker = speakerText(seg.speaker_id, seg.speaker_state);
+  const badge = isFinal
+    ? '<span class="badge badge-final">final</span>'
+    : '<span class="badge badge-partial">识别中</span>';
+  const stateCls = seg.speaker_state ? ` state-${esc(seg.speaker_state)}` : '';
+  let body;
+  if (Array.isArray(seg.words) && seg.words.length) {
+    // Word-level timestamps: hover a character to see its time range.
+    body = seg.words
+      .map(w => `<span class="w" title="${esc(formatMsRange(w.start_ms, w.end_ms))}">${esc(w.word || '')}</span>`)
+      .join('');
+  } else {
+    body = esc(seg.text || '') || '<span class="muted-text">空文本</span>';
+  }
+  return `
+    <div class="live-time mono">${esc(formatMsRange(seg.start_ms, seg.end_ms))}</div>
+    <div class="live-speaker${stateCls}">
+      <span class="swatch" style="background:${spkKnown ? speakerColor(seg.speaker_id) : 'transparent'}"></span>
+      <span class="${spkKnown ? '' : 'muted-text'}">${esc(speaker)}</span>
+    </div>
+    <div class="live-body">
+      <div class="live-meta">
+        ${badge}
+        <span class="mono">${esc(seg.segment_id || '')}</span>
+        <span>rev ${esc(seg.revision ?? '')}</span>
+        ${seg.source ? `<span class="src-tag">${esc(seg.source)}</span>` : ''}
+      </div>
+      <div class="live-text${isFinal ? '' : ' draft-text'}">${body}</div>
+    </div>
+  `;
+}
+
+function resetTimeline() {
+  realtime.segNodes.clear();
+  const timeline = $('realtimeTimeline');
+  if (timeline) {
+    timeline.innerHTML = '<div class="empty-state compact-empty">等待 TranscriptUpdate</div>';
+  }
+}
+
+function insertRowSorted(timeline, node, startMs) {
+  const start = Number(startMs) || 0;
+  node.dataset.start = String(start);
+  for (const row of timeline.querySelectorAll('.live-row')) {
+    if ((Number(row.dataset.start) || 0) > start) {
+      timeline.insertBefore(node, row);
+      return;
+    }
+  }
+  timeline.appendChild(node);
+}
+
+// Incremental: update the one row for this segment_id in place (no full
+// rebuild), so text stays selectable and long sessions don't jank.
+function upsertSegmentRow(seg) {
+  const timeline = $('realtimeTimeline');
+  if (!timeline) return;
+  const stick = shouldStickToTimelineBottom(timeline);
+  let node = realtime.segNodes.get(seg.segment_id);
+  if (!node) {
+    const empty = timeline.querySelector('.empty-state');
+    if (empty) empty.remove();
+    node = document.createElement('div');
+    node.className = 'live-row';
+    node.dataset.seg = seg.segment_id;
+    insertRowSorted(timeline, node, seg.start_ms);
+    realtime.segNodes.set(seg.segment_id, node);
+  }
+  node.dataset.final = String(!!seg.is_final);
+  node.innerHTML = segmentRowInner(seg);
+  if (stick) stickTimelineToBottom(timeline);
+}
+
+function removeSegmentRow(segmentId) {
+  if (segmentId == null) return;
+  const node = realtime.segNodes.get(segmentId);
+  if (node) {
+    node.remove();
+    realtime.segNodes.delete(segmentId);
+  }
+  realtime.segments.delete(segmentId);
+}
+
+function shouldStickToTimelineBottom(timeline) {
+  if (!timeline) return false;
+  const distanceToBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
+  return distanceToBottom <= TIMELINE_STICKY_BOTTOM_PX;
+}
+
+function stickTimelineToBottom(timeline) {
+  if (!timeline) return;
+  requestAnimationFrame(() => {
+    timeline.scrollTop = timeline.scrollHeight;
+  });
+}
+
+function renderRealtimeResults() {
+  renderRealtimeSummary();
+  if (realtime.segNodes.size === 0) {
+    const timeline = $('realtimeTimeline');
+    if (timeline && !timeline.querySelector('.empty-state')) {
+      timeline.innerHTML = '<div class="empty-state compact-empty">等待 TranscriptUpdate</div>';
+    }
+  }
+}
+
+// Apply one TranscriptUpdate: keep the highest revision per segment_id, honour
+// deletion/supersede. Draft/final/speaker/words are all just revisions here.
+function applyTranscriptUpdate(json) {
+  const id = json.segment_id;
+  if (id == null) return;
+  const cur = realtime.segments.get(id);
+  if (cur && (json.revision ?? 0) <= (cur.revision ?? 0)) return; // stale
+  if (json.supersedes_segment_id) removeSegmentRow(json.supersedes_segment_id);
+  if (json.segment_deleted) {
+    removeSegmentRow(id);
     return;
   }
+  realtime.segments.set(id, json);
+  upsertSegmentRow(json);
+}
 
-  $('segTbody').innerHTML = rows.map(seg => {
-    const isFinal = seg.source === 'final'
-      || seg.source === 'offline_asr'
-      || seg.source === 'speaker_refine'
-      || seg.is_final;
-    const badge = isFinal
-      ? '<span class="badge badge-final">final</span>'
-      : '<span class="badge badge-partial">partial</span>';
-    return `<tr>
-      <td>${badge}</td>
-      <td class="mono">${esc(seg.segment_id || '')}</td>
-      <td class="mono">${esc(seg.parent_segment_id || '')}</td>
-      <td class="mono">${esc(seg.supersedes_segment_id || '')}</td>
-      <td class="mono">${seg.revision ?? ''}</td>
-      <td>${esc(seg.source || '')}</td>
-      <td>${seg.speaker_id != null ? `S${esc(seg.speaker_id)}` : ''}</td>
-      <td>${esc(seg.emotion || seg.emotion_state || '')}</td>
-      <td class="seg-text">${esc(seg.text || '')}</td>
-    </tr>`;
-  }).join('');
+function handleRealtimeEvent(json) {
+  const type = json.type || '';
+  if (type === 'SessionStarted') {
+    realtime.session = json;
+    setWsStatus(json.enable_speaker ? '已连接 · speaker on' : '已连接 · speaker off', 'ok');
+  } else if (type === 'TranscriptUpdate') {
+    applyTranscriptUpdate(json);
+  } else if (type === 'SessionCompleted') {
+    realtime.completed = json;
+  } else if (type === 'ErrorResponse') {
+    realtime.errors.push(json);
+  }
+  renderRealtimeSummary();
 }
 
 function setupWsHandlers(ws) {
@@ -473,14 +710,7 @@ function setupWsHandlers(ws) {
       json.type === 'ErrorResponse' ? 'error' : 'info',
     );
     appendLogRaw($('realtimeLog'), pretty(json), 'log-recv', 'debug');
-    if (json.type === 'TranscriptUpdate') {
-      if (json.supersedes_segment_id) realtime.supersededSegments.add(json.supersedes_segment_id);
-      const current = realtime.segments.get(json.segment_id);
-      if (!current || (json.revision ?? 0) >= (current.revision ?? 0)) {
-        realtime.segments.set(json.segment_id, json);
-        rebuildSegments();
-      }
-    }
+    handleRealtimeEvent(json);
   };
   ws.onerror = () => {
     setWsStatus('连接错误', 'error');
@@ -514,8 +744,11 @@ function startRealtimeSend(file) {
   const ws = new WebSocket(url);
   realtime.ws = ws;
   ws.onopen = async () => {
-    setWsStatus('已连接', 'ok');
-    appendLog($('realtimeLog'), '连接成功，开始发送音频', 'log-sent', 'info');
+    const startPayload = buildStartSessionPayload();
+    ws.send(JSON.stringify(startPayload));
+    appendLog($('realtimeLog'), `>>> StartSession ${JSON.stringify(startPayload)}`, 'log-sent', 'info');
+    setWsStatus('已连接 · 初始化', 'ok');
+    appendLog($('realtimeLog'), '连接成功，开始发送 StartSession 和音频', 'log-sent', 'info');
     toast('WebSocket 已连接', 'success');
     await sendAudio(file);
   };
@@ -649,7 +882,10 @@ async function startMic() {
   setupWsHandlers(ws);
 
   ws.onopen = () => {
-    setWsStatus('已连接 (麦克风)', 'ok');
+    const startPayload = buildStartSessionPayload();
+    ws.send(JSON.stringify(startPayload));
+    appendLog($('realtimeLog'), `>>> StartSession ${JSON.stringify(startPayload)}`, 'log-sent', 'info');
+    setWsStatus('已连接 · 麦克风', 'ok');
     appendLog($('realtimeLog'), '连接成功，开始麦克风录制', 'log-sent', 'info');
     toast('麦克风录制中', 'success');
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -716,6 +952,7 @@ export function registerRealtime() {
   registerSourceTabs();
   updateStats();
   updateProgress();
+  renderRealtimeResults();
   $('realtimeFile').addEventListener('change', handleRealtimeFileChange);
   $('playAudioBtn').addEventListener('click', playPreviewAudio);
   $('stopAudioBtn').addEventListener('click', stopPreviewAudio);
@@ -726,10 +963,7 @@ export function registerRealtime() {
   $('connectUrlBtn').addEventListener('click', connectAndSendUrl);
   $('micBtn').addEventListener('click', startMic);
   $('micStopBtn').addEventListener('click', () => {
-    if (realtime.ws?.readyState === WebSocket.OPEN) {
-      realtime.ws.send('stop');
-      appendLog($('realtimeLog'), '>>> stop (录制结束)', 'log-sent', 'info');
-    }
+    sendControl('FinishSession', '录制结束');
     stopMic();
   });
   $('micDownloadBtn').addEventListener('click', () => {
@@ -746,29 +980,24 @@ export function registerRealtime() {
     appendLog($('realtimeLog'), `下载录音: ${anchor.download}`, 'log-info', 'info');
   });
   $('pingBtn').addEventListener('click', () => {
-    if (realtime.ws?.readyState === WebSocket.OPEN) {
-      realtime.ws.send('ping');
-      appendLog($('realtimeLog'), '>>> ping', 'log-sent', 'info');
-    } else {
-      toast('WebSocket 未连接', 'error');
-    }
+    sendControl('Ping');
   });
   $('stopBtn').addEventListener('click', () => {
-    if (realtime.ws?.readyState === WebSocket.OPEN) {
-      realtime.ws.send('stop');
-      appendLog($('realtimeLog'), '>>> stop', 'log-sent', 'info');
-    } else {
-      toast('WebSocket 未连接', 'error');
-    }
+    sendControl('FinishSession');
   });
   $('closeBtn').addEventListener('click', () => {
     if (realtime.micRecording) stopMic();
     realtime.ws?.close();
   });
   $('clearSegBtn').addEventListener('click', () => {
+    realtime.session = null;
+    realtime.completed = null;
+    realtime.errors = [];
     realtime.segments.clear();
-    realtime.supersededSegments.clear();
-    rebuildSegments();
+    realtime.segNodes.clear();
+    resetTimeline();
+    updateStats();
+    renderRealtimeSummary();
   });
   $('clearRealtimeLogBtn').addEventListener('click', () => { $('realtimeLog').innerHTML = ''; });
   $('syncWsBtn').addEventListener('click', syncWsUrlFromHttp);
