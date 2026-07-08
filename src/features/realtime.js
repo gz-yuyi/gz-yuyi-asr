@@ -412,11 +412,13 @@ function buildStartSessionPayload() {
     context: optionalText('realtimeContext'),
     enable_speaker: $('enableSpeaker').value === 'true',
     speaker_num: speakerNum,
+    allowed_output_languages: optionalText('realtimeAllowedLanguages'),
     number_normalization_mode: Number($('realtimeNumberMode').value || 1),
     filler_filter_mode: Number($('realtimeFillerMode').value || 0),
     profanity_filter_mode: Number($('realtimeProfanityMode').value || 0),
   };
   if (payload.speaker_num == null) delete payload.speaker_num;
+  if (payload.allowed_output_languages == null) delete payload.allowed_output_languages;
   if (vadThreshold != null) payload.vad_threshold = vadThreshold;
   if (vadMinSilence != null) payload.vad_min_silence_duration_ms = vadMinSilence;
   return payload;

@@ -47,6 +47,7 @@
   "sample_rate": 16000,
   "hotword_id": "default",
   "context": "",
+  "allowed_output_languages": ["zh", "en"],
   "vad_threshold": 0.25,
   "vad_min_silence_duration_ms": 500,
   "enable_speaker": true,
@@ -66,6 +67,8 @@
 | `sample_rate` | int | 否 | `16000` | 采样率；`pcm_s16le` 时必须为 `16000`，压缩格式由解码器统一转到 `16k` |
 | `hotword_id` | string/null | 否 | `default` | 热词表 ID |
 | `context` | string/null | 否 | 空 | ASR 上下文提示 |
+| `language` | string/null | 否 | 空 | 输出语种限制（单语种），如 `zh`、`en`、`ja`、`ko`；为空不限制 |
+| `allowed_output_languages` | string/array/null | 否 | 空 | 输出语种白名单（多语种），如 `"zh,en"` 或 `["zh","en"]`；中文方言如 `Cantonese/yue` 归入 `zh` |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写 |
@@ -84,6 +87,8 @@
 |---|---|---:|---|---|
 | `hotword_id` | string | 否 | `default` | 热词表 ID |
 | `context` | string | 否 | 空 | 识别上下文提示 |
+| `language` | string | 否 | 空 | 输出语种限制（单语种），如 `zh`、`en` |
+| `allowed_output_languages` | string | 否 | 空 | 输出语种白名单（逗号分隔），如 `zh,en` |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写 |
@@ -97,10 +102,12 @@
 示例：
 
 ```text
-ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&sample_rate=16000&number_normalization_mode=1
+ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&sample_rate=16000&language=zh&number_normalization_mode=1
 ```
 
 query 参数与新式握手的 `StartSession` 字段一一对应、语义相同。新客户端不应再使用 query 参数。
+
+输出语种白名单只在模型明确返回可识别语种时过滤；如果模型未返回语种或语种未知，服务端会保留文本，避免误删有效结果。
 
 ### 3.4 二进制音频帧
 
@@ -203,6 +210,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `audio_encoding` | string | 实际生效的音频编码 |
 | `sample_rate` | int | 实际生效的采样率 |
 | `enable_speaker` | bool | 当前会话是否启用说话人回写 |
+| `allowed_output_languages` | array | 实际生效的输出语种白名单；未设置时可省略 |
 
 示例：
 
@@ -216,7 +224,8 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
   "protocol_version": 2,
   "audio_encoding": "pcm_s16le",
   "sample_rate": 16000,
-  "enable_speaker": true
+  "enable_speaker": true,
+  "allowed_output_languages": ["zh", "en"]
 }
 ```
 
