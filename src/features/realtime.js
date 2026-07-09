@@ -826,7 +826,7 @@ function prepareRealtimeMicDownload(chunks, sampleRate) {
   $('micDownloadHint').textContent = `最近录音已就绪：${filename} · ${durationSec.toFixed(1)}s`;
 }
 
-function stopMic() {
+function stopMic({ finish = false } = {}) {
   const chunks = realtime.micChunks.slice();
   const sampleRate = realtime.micSampleRate || 16000;
   realtime.micRecording = false;
@@ -841,6 +841,13 @@ function stopMic() {
   realtime.micAudioCtx = null;
   setMicUI(false);
   appendLog($('realtimeLog'), '麦克风录制已停止', 'log-info', 'info');
+  // Stop audio capture before flushing the stream, so no more PCM frames race
+  // after FinishSession. Without this final control frame, short microphone
+  // recordings can show "audio sent" but never produce a final transcript
+  // because the server is still waiting for either trailing silence or finish.
+  if (finish && realtime.ws?.readyState === WebSocket.OPEN) {
+    sendControl('FinishSession', '录制结束，冲刷尾段');
+  }
   toast('录制已停止', 'info');
   try {
     prepareRealtimeMicDownload(chunks, sampleRate);
@@ -965,8 +972,7 @@ export function registerRealtime() {
   $('connectUrlBtn').addEventListener('click', connectAndSendUrl);
   $('micBtn').addEventListener('click', startMic);
   $('micStopBtn').addEventListener('click', () => {
-    sendControl('FinishSession', '录制结束');
-    stopMic();
+    stopMic({ finish: true });
   });
   $('micDownloadBtn').addEventListener('click', () => {
     if (!realtime.micDownloadUrl) {
@@ -988,7 +994,10 @@ export function registerRealtime() {
     sendControl('FinishSession');
   });
   $('closeBtn').addEventListener('click', () => {
-    if (realtime.micRecording) stopMic();
+    if (realtime.micRecording) {
+      stopMic({ finish: true });
+      return;
+    }
     realtime.ws?.close();
   });
   $('clearSegBtn').addEventListener('click', () => {
