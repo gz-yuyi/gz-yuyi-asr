@@ -11,6 +11,10 @@
 
 ## [Unreleased]
 
+### 变更
+
+- 清理授权机制和离线异步 HTTP 文档中已过时或与现有接口重复的说明，避免产生错误的配置和实现预期。
+
 ### 新增
 
 - 实时 WebSocket 接口新增输出语种白名单参数 `language` 和 `allowed_output_languages`，可限制只输出指定语种的识别结果。

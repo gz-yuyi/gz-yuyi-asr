@@ -59,13 +59,6 @@
 - `OFFLINE_ASR_LICENSE_REFRESH_INTERVAL_MS`，默认 `60000`
 - `OFFLINE_ASR_LICENSE_TIMEOUT_MS`，默认 `5000`
 
-不提供环境变量关闭授权。测试或本地开发代码如需绕过启动强制授权，只能在进程内显式构造 `LicenseConfig(require_at_startup=False)`。
-
-兼容旧环境变量：
-
-- `OFFLINE_ASR_LICENSE_ENDPOINT` 可作为 `OFFLINE_ASR_LICENSE_SERVICE_URL`
-- `OFFLINE_ASR_PRODUCT_ID` 可作为 `OFFLINE_ASR_LICENSE_PRODUCT_ID`
-
 ## 状态查询
 
 `GET /api/system/route_status` 返回授权状态、授权路数、当前 running 数、queued 数、可用处理路数、到期时间和最近刷新错误。
