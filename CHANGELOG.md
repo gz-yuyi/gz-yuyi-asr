@@ -13,11 +13,14 @@
 
 ### 变更
 
+- 离线任务在 `Diarize=true` 时自动复用聚类 embedding 匹配注册声纹，移除无效的独立启停字段；`GroupIds` 和 `SpeakerProfileIds` 仅用于限定候选范围。
 - 实时说话人回写默认自动执行注册声纹识别，移除独立的客户端启停参数和 `YUYI_ASR_SPEAKER_RECOGNITION_ENABLED` 环境变量；仍可通过声纹组和人员 ID 限定候选范围。
 - 清理授权机制和离线异步 HTTP 文档中已过时或与现有接口重复的说明，避免产生错误的配置和实现预期。
 
 ### 新增
 
+- 离线任务和上传创建任务支持持久化声纹组/人员候选范围，并在 `ResultDetail`、`SpeakerSegments`、`SpeakerProfileMatches` 及回调中返回匹配结果。
+- 测试控制台离线任务面板新增明确的 `Diarize` 选项，开启说话人分离时自动测试注册声纹匹配。
 - 测试控制台实时转写面板新增声纹组和注册人员筛选，并在时间轴、摘要及事件日志中直接展示注册人员名称、Profile ID、匹配分数和未知声纹状态。
 - 实时 WebSocket 接口新增输出语种白名单参数 `language` 和 `allowed_output_languages`，可限制只输出指定语种的识别结果。
 - 测试控制台实时转写面板新增「输出语种」输入框，支持设置如 `zh` 或 `zh,en`。

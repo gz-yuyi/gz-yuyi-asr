@@ -47,13 +47,6 @@ async function refreshOfflineHotwords() {
   }
 }
 
-function speakerRecognitionValue() {
-  const value = $('offlineSpeakerRecognition').value;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return null;
-}
-
 function optionalSelectValue(id) {
   const value = $(id)?.value?.trim() || '';
   return value || undefined;
@@ -118,11 +111,10 @@ async function createOfflineTask() {
     NumberNormalizationMode: Number($('offlineNumberMode').value),
     FillerFilterMode: Number($('offlineFillerMode').value),
     ProfanityFilterMode: Number($('offlineProfanityMode').value),
+    Diarize: $('offlineDiarize').value === 'true',
   };
-  const recognition = speakerRecognitionValue();
   const groupIds = parseListInput($('offlineSpeakerGroupIds').value);
   const profileIds = parseListInput($('offlineSpeakerProfileIds').value);
-  if (recognition !== null) payload.EnableSpeakerRecognition = recognition;
   if (groupIds.length) payload.GroupIds = groupIds;
   if (profileIds.length) payload.SpeakerProfileIds = profileIds;
   Object.assign(payload, offlineSpeakerAdvancedOptions());
@@ -156,7 +148,7 @@ async function uploadAndCreateTask() {
     number_normalization_mode: $('offlineNumberMode').value,
     filler_filter_mode: $('offlineFillerMode').value,
     profanity_filter_mode: $('offlineProfanityMode').value,
-    EnableSpeakerRecognition: speakerRecognitionValue(),
+    Diarize: $('offlineDiarize').value,
     GroupIds: parseListInput($('offlineSpeakerGroupIds').value),
     SpeakerProfileIds: parseListInput($('offlineSpeakerProfileIds').value),
     ...offlineSpeakerAdvancedOptions(),

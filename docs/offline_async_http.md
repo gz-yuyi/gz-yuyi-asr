@@ -34,7 +34,8 @@
 | `CallbackUrl` | string | 否 | 回调 URL，不填则使用轮询模式 |
 | `HotwordId` | string | 否 | 热词表 ID |
 | `Context` | string | 否 | 识别上下文提示 |
-| `EnableSpeakerRecognition` | bool | 否 | 是否启用已注册声纹识别；不传则使用服务端默认配置 |
+| `Align` | bool | 否 | 是否启用字词时间戳对齐，默认 `true` |
+| `Diarize` | bool | 否 | 是否启用说话人分离，默认 `true`；开启时自动执行注册声纹匹配 |
 | `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID；不传或空数组表示匹配默认组 `default` |
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的全局人员 ID；不传或空数组表示匹配指定组内全部启用声纹 |
 | `EnableSpeakerOverlap` | bool | 否 | 是否启用离线重叠说话检测与修正；不传则使用服务端默认配置。启用后 `SpeakerSegments` 可能出现时间重叠 |
@@ -56,7 +57,7 @@
 - 当 `asr.type=asr-offline-a3` 时，会在服务启动时加载全局静态热词；更新后需重启服务
 - `Context` 会和热词提示合并后一起传给 `A3_vllm` / `A3_llamacpp`
 - 热词表创建、查询和删除详见 [热词管理 API](hotwords_http.md)
-- `SpeakerId` 仍表示单个转写任务内的临时说话人编号；启用声纹识别后，会额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等注册声纹匹配字段
+- `SpeakerId` 仍表示单个转写任务内的临时说话人编号；`Diarize=true` 时会自动对每个聚类说话人执行注册声纹匹配，并额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等字段
 - `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只用于限定匹配范围，不改变人员身份
 - 声纹 Profile 注册、管理和匹配策略详见 [声纹注册与识别 API](speaker_profiles_http.md)
 - 创建任务前会检查在线授权状态；授权未加载、已过期或无有效路数时直接返回 `FailedOperation.LicenseUnauthorized`，不会创建排队任务
@@ -69,7 +70,7 @@
   "CallbackUrl": "https://your-server.com/asr/callback",
   "HotwordId": "default",
   "Context": "请优先识别广州、荔湾区、圆中园等词语",
-  "EnableSpeakerRecognition": true,
+  "Diarize": true,
   "GroupIds": ["customer_service"],
   "SpeakerProfileIds": ["spk_zhangsan", "spk_lisi"],
   "EnableSpeakerOverlap": true,
@@ -165,9 +166,10 @@
 | `callback_url` | string | 否 | 回调 URL，不填则使用轮询模式 |
 | `hotword_id` | string | 否 | 热词表 ID |
 | `context` | string | 否 | 识别上下文提示 |
-| `EnableSpeakerRecognition` | bool | 否 | 是否启用已注册声纹识别；不传则使用服务端默认配置 |
-| `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID |
-| `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的全局人员 ID |
+| `Align` / `align` | bool | 否 | 是否启用字词时间戳对齐，默认 `true` |
+| `Diarize` / `diarize` | bool | 否 | 是否启用说话人分离，默认 `true`；开启时自动执行注册声纹匹配 |
+| `GroupIds` / `group_ids` | string | 否 | 限定本次任务可匹配的声纹组 ID，多个值使用逗号分隔 |
+| `SpeakerProfileIds` / `speaker_profile_ids` | string | 否 | 限定本次任务可匹配的全局人员 ID，多个值使用逗号分隔 |
 | `EnableSpeakerOverlap` | bool | 否 | 是否启用离线重叠说话检测与修正 |
 | `SpeakerNum` | int | 否 | 本次任务已知说话人数 |
 | `SpeakerClusterType` | string | 否 | 本次任务说话人聚类算法：`spectral`、`AHC`、`umap_hdbscan` |
@@ -245,7 +247,7 @@
 | `Response.Data.ResultDetail[].SpeakerProfileId` | string | 匹配到的注册声纹 Profile ID；未命中时缺省或为 `null` |
 | `Response.Data.ResultDetail[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `Response.Data.ResultDetail[].SpeakerMatchScore` | number | 声纹匹配分数，通常为 cosine similarity，范围建议 `0.0 - 1.0` |
-| `Response.Data.ResultDetail[].SpeakerMatchStatus` | string | 声纹匹配状态：`matched / unknown / disabled` |
+| `Response.Data.ResultDetail[].SpeakerMatchStatus` | string | 声纹匹配状态：`matched / unknown` |
 | `Response.Data.ResultDetail[].Emotion` | string | 情绪标签；建议值：`neutral / happy / sad / angry` |
 | `Response.Data.ResultDetail[].EmotionScore` | number | 情绪置信度，范围建议 `0.0 - 1.0` |
 | `Response.Data.ResultDetail[].Words` | array | 字符级时间戳 |
@@ -256,7 +258,7 @@
 | `Response.Data.SpeakerProfileMatches[].SpeakerProfileId` | string | 匹配到的注册声纹 Profile ID；未命中时缺省或为 `null` |
 | `Response.Data.SpeakerProfileMatches[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `Response.Data.SpeakerProfileMatches[].SpeakerMatchScore` | number | 当前临时说话人与注册声纹的匹配分数 |
-| `Response.Data.SpeakerProfileMatches[].SpeakerMatchStatus` | string | `matched / unknown / disabled` |
+| `Response.Data.SpeakerProfileMatches[].SpeakerMatchStatus` | string | `matched / unknown` |
 | `Response.Data.SpeakerSegments` | array | 按说话人切分后的时间段；启用声纹识别时可附带注册声纹匹配字段；启用 `EnableSpeakerOverlap` 时不同说话人的时间段可能重叠 |
 | `Response.Data.SpeakerSegments[].StartMs` | int | 说话人片段开始时间（毫秒） |
 | `Response.Data.SpeakerSegments[].EndMs` | int | 说话人片段结束时间（毫秒） |
@@ -264,7 +266,7 @@
 | `Response.Data.SpeakerSegments[].SpeakerProfileId` | string | 匹配到的注册声纹 Profile ID；未命中时缺省或为 `null` |
 | `Response.Data.SpeakerSegments[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `Response.Data.SpeakerSegments[].SpeakerMatchScore` | number | 声纹匹配分数 |
-| `Response.Data.SpeakerSegments[].SpeakerMatchStatus` | string | `matched / unknown / disabled` |
+| `Response.Data.SpeakerSegments[].SpeakerMatchStatus` | string | `matched / unknown` |
 | `Response.Data.Artifacts` | object | 任务调试产物路径集合，可能包含 `VadJson`、`SubsegmentsJson`、`AsrSegmentsJson`、`SpeakerSegmentsJson`、`SpeakerRttm`、`EmbeddingStatsJson`、`DiarizationDebugJson` |
 | `Response.Data.AudioDuration` | number | 音频时长（秒） |
 | `Response.Data.ErrorMsg` | string | 错误信息（失败时返回） |
@@ -639,7 +641,7 @@
 | `[].SpeakerProfileId` | string | 匹配到的注册声纹 Profile ID；未命中时缺省或为 `null` |
 | `[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `[].SpeakerMatchScore` | number | 声纹匹配分数 |
-| `[].SpeakerMatchStatus` | string | `matched / unknown / disabled` |
+| `[].SpeakerMatchStatus` | string | `matched / unknown` |
 | `[].Emotion` | string | 情绪标签；建议值：`neutral / happy / sad / angry` |
 | `[].EmotionScore` | number | 情绪置信度，范围建议 `0.0 - 1.0` |
 | `[].Words` | array | 字符级时间戳 |
@@ -655,7 +657,7 @@
 | `[].SpeakerProfileId` | string | 匹配到的注册声纹 Profile ID；未命中时缺省或为 `null` |
 | `[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `[].SpeakerMatchScore` | number | 声纹匹配分数 |
-| `[].SpeakerMatchStatus` | string | `matched / unknown / disabled` |
+| `[].SpeakerMatchStatus` | string | `matched / unknown` |
 
 ### `speakerSegments` JSON 结构（字符串内容）
 `speakerSegments` 字段是一个 JSON 字符串，解析后为数组：
@@ -668,7 +670,7 @@
 | `[].SpeakerProfileId` | string | 匹配到的注册声纹 Profile ID；未命中时缺省或为 `null` |
 | `[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `[].SpeakerMatchScore` | number | 声纹匹配分数 |
-| `[].SpeakerMatchStatus` | string | `matched / unknown / disabled` |
+| `[].SpeakerMatchStatus` | string | `matched / unknown` |
 
 ### 回调示例（成功，解码后可读）
 ```
@@ -713,7 +715,7 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 
 ## 注册声纹识别
 
-`POST /api/asr/create_task` 可通过 `EnableSpeakerRecognition`、`GroupIds` 和 `SpeakerProfileIds` 启用或限定注册声纹识别。声纹 Profile 注册、管理、质量要求和匹配策略详见 [声纹注册与识别 API](speaker_profiles_http.md)。
+`POST /api/asr/create_task` 和 `POST /api/asr/create_task_upload` 在 `Diarize=true` 时自动执行注册声纹识别，不提供独立启停开关。`GroupIds` 和 `SpeakerProfileIds` 只限定候选范围。服务端复用说话人聚类阶段的 CAM++ embedding，为每个临时说话人生成去除异常窗口后的稳健质心；有效窗口少于 2 个或有效语音不足 2 秒时保持 `unknown`，其余使用与实时识别相同的阈值和候选差值策略。声纹 Profile 注册、管理和质量要求详见 [声纹注册与识别 API](speaker_profiles_http.md)。
 
 ---
 

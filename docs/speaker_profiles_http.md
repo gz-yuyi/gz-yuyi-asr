@@ -480,7 +480,6 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | `YUYI_ASR_SPEAKER_MAX_ENROLL_PROTOTYPES` | `3` | 每次注册最多写入的 prototype enrollment 数；设为 `1` 时退回单中心向量 |
 | `YUYI_ASR_SPEAKER_ENROLL_PROTOTYPE_SIMILARITY_THRESHOLD` | `0.82` | 生成多 prototype 时，同一局部 prototype 内 subsegment 与 seed 的最小相似度 |
 | `YUYI_ASR_SPEAKER_MIN_ENROLL_PROTOTYPE_SUBSEGMENTS` | `4` | 每个额外 prototype 至少需要覆盖的 subsegment 数 |
-| `YUYI_ASR_SPEAKER_MIN_CLUSTER_SPEECH_MS` | `3000` | 识别时参与匹配的临时说话人最低累计时长 |
 | `YUYI_ASR_SPEAKER_ENROLL_SUBSEGMENT_DURATION_MS` | 跟随转写链路 | 注册时声纹子段窗口长度 |
 | `YUYI_ASR_SPEAKER_ENROLL_SUBSEGMENT_SHIFT_MS` | 跟随转写链路 | 注册时声纹子段滑动步长 |
 
@@ -495,14 +494,14 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 
 ## 转写任务如何启用声纹识别
 
-转写任务接口仍在 [offline_async_http.md](offline_async_http.md) 中维护。`POST /api/asr/create_task` 可通过以下字段控制注册声纹识别：
+转写任务接口仍在 [offline_async_http.md](offline_async_http.md) 中维护。`POST /api/asr/create_task` 和上传创建任务在 `Diarize=true` 时自动执行注册声纹识别，不提供独立启停字段：
 
 | 参数名 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `EnableSpeakerRecognition` | bool | 否 | 是否启用已注册声纹识别；不传则使用服务端默认配置 |
+| `Diarize` | bool | 否 | 默认 `true`；开启说话人分离时自动执行声纹匹配 |
 | `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID；不传或空数组表示匹配默认组 `default` |
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的人员 ID；不传或空数组表示匹配指定组内全部启用声纹 |
 
-启用后，转写结果中的 `ResultDetail`、`SpeakerSegments` 和 `SpeakerProfileMatches` 会返回匹配到的注册声纹信息。由于 `SpeakerProfileId` 全局唯一，结果中默认只需要返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 和 `SpeakerMatchStatus`。
+匹配后，转写结果中的 `ResultDetail`、`SpeakerSegments` 和 `SpeakerProfileMatches` 会返回注册声纹信息。`SpeakerProfileId` 全局唯一；音频过短、候选分数不足或候选差值不足时返回 `SpeakerMatchStatus=unknown`。
 
 实时 WebSocket 转写接口在 [realtime-websocket-api.md](realtime-websocket-api.md) 中维护。启用实时说话人回写时，服务端会自动执行注册声纹识别，不提供单独的启停参数或环境变量；可通过 `group_ids` 和 `speaker_profile_ids` 限定本次会话的候选声纹范围，并在 `TranscriptUpdate` 中返回匹配结果。
