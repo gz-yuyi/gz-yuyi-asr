@@ -470,7 +470,6 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 
 | 环境变量 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `YUYI_ASR_SPEAKER_RECOGNITION_ENABLED` | `false` | 是否默认启用注册声纹识别 |
 | `YUYI_ASR_SPEAKER_MATCH_THRESHOLD` | `0.78` | 最低匹配分数阈值 |
 | `YUYI_ASR_SPEAKER_MATCH_MARGIN` | `0.04` | `top1 - top2` 最小差值；用于避免相近声纹误认 |
 | `YUYI_ASR_SPEAKER_MIN_ENROLL_SPEECH_MS` | `10000` | 注册时最低有效语音时长 |
@@ -506,4 +505,4 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 
 启用后，转写结果中的 `ResultDetail`、`SpeakerSegments` 和 `SpeakerProfileMatches` 会返回匹配到的注册声纹信息。由于 `SpeakerProfileId` 全局唯一，结果中默认只需要返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 和 `SpeakerMatchStatus`。
 
-实时 WebSocket 转写接口在 [realtime-websocket-api.md](realtime-websocket-api.md) 中维护。实时接口当前不执行注册声纹识别；`enable_speaker_recognition`、`group_ids` 和 `speaker_profile_ids` 仅作为协议预留字段接收，不会返回注册声纹匹配结果。需要声纹识别时应使用离线异步转写任务。
+实时 WebSocket 转写接口在 [realtime-websocket-api.md](realtime-websocket-api.md) 中维护。启用实时说话人回写时，服务端会自动执行注册声纹识别，不提供单独的启停参数或环境变量；可通过 `group_ids` 和 `speaker_profile_ids` 限定本次会话的候选声纹范围，并在 `TranscriptUpdate` 中返回匹配结果。

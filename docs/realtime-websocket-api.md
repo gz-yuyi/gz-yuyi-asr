@@ -52,6 +52,8 @@
   "vad_min_silence_duration_ms": 500,
   "enable_speaker": true,
   "speaker_num": null,
+  "group_ids": ["default"],
+  "speaker_profile_ids": [],
   "number_normalization_mode": 1,
   "filler_filter_mode": 0,
   "profanity_filter_mode": 0
@@ -71,11 +73,15 @@
 | `allowed_output_languages` | string/array/null | 否 | 空 | 输出语种白名单（多语种），如 `"zh,en"` 或 `["zh","en"]`；中文方言如 `Cantonese/yue` 归入 `zh` |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
-| `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写 |
+| `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时服务端自动执行注册声纹识别 |
 | `speaker_num` | int/null | 否 | 空 | 指定说话人数；为空使用自动估计 |
+| `group_ids` | string/array/null | 否 | `default` | 限定本次会话可匹配的声纹组 |
+| `speaker_profile_ids` | string/array/null | 否 | 空 | 限定本次会话可匹配的注册人员；为空匹配指定组内全部启用声纹 |
 | `number_normalization_mode` | int | 否 | `1` | 数字转换模式：`0/1/3` |
 | `filler_filter_mode` | int | 否 | `0` | 语气词过滤模式：`0/1/2` |
 | `profanity_filter_mode` | int | 否 | `0` | 脏词过滤模式：`0/1/2` |
+
+注册声纹识别没有独立的客户端启停字段或环境变量：`enable_speaker=true` 时自动启用，`enable_speaker=false` 时随说话人回写一起关闭。旧客户端传入的 `enable_speaker_recognition` 会被忽略。
 
 服务端解析成功后返回 `SessionStarted`（`protocol_version=2`），其中回显实际生效的配置。若 `StartSession` 非法，返回 `ErrorResponse(error_code=SESSION_ERROR)` 并关闭连接。
 
@@ -91,8 +97,10 @@
 | `allowed_output_languages` | string | 否 | 空 | 输出语种白名单（逗号分隔），如 `zh,en` |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
-| `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写 |
+| `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时自动执行注册声纹识别 |
 | `speaker_num` | int | 否 | 空 | 指定说话人数 |
+| `group_ids` | string | 否 | `default` | 限定本次会话可匹配的声纹组 |
+| `speaker_profile_ids` | string | 否 | 空 | 限定本次会话可匹配的注册人员 |
 | `audio_encoding` | string | 否 | `pcm_s16le` | 实时音频编码 |
 | `sample_rate` | int | 否 | `16000` | 采样率 |
 | `number_normalization_mode` | int | 否 | `1` | 数字转换模式：`0/1/3` |
@@ -210,6 +218,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `audio_encoding` | string | 实际生效的音频编码 |
 | `sample_rate` | int | 实际生效的采样率 |
 | `enable_speaker` | bool | 当前会话是否启用说话人回写 |
+| `enable_speaker_recognition` | bool | 服务端计算的声纹识别状态；与 `enable_speaker` 联动，不是客户端配置项 |
 | `allowed_output_languages` | array | 实际生效的输出语种白名单；未设置时可省略 |
 
 示例：
@@ -225,6 +234,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
   "audio_encoding": "pcm_s16le",
   "sample_rate": 16000,
   "enable_speaker": true,
+  "enable_speaker_recognition": true,
   "allowed_output_languages": ["zh", "en"]
 }
 ```
@@ -248,6 +258,11 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `end_ms` | int/null | 片段结束时间；未闭段时可为空 |
 | `speaker_id` | int/null | 当前会话内的展示 speaker 编号 |
 | `speaker_state` | string | `pending` / `provisional` / `stable` |
+| `speaker_match_status` | string/null | 注册声纹匹配状态：`matched` / `unknown`；未进行说话人回写时可省略 |
+| `speaker_profile_id` | string/null | 命中的注册声纹 Profile ID |
+| `speaker_name` | string/null | 命中的注册人员名称 |
+| `speaker_match_score` | number/null | 注册声纹 cosine 匹配分数 |
+| `speaker_enrollment_id` | string/null | 命中的 enrollment ID |
 | `emotion` | string/null | 情绪标签；建议值：`neutral / happy / sad / angry` |
 | `emotion_score` | number/null | 情绪置信度，范围建议 `0.0 - 1.0` |
 | `emotion_state` | string/null | `pending` / `stable` |
