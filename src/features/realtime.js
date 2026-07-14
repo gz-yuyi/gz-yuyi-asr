@@ -1,7 +1,7 @@
 import { $, qsa } from '../core/dom.js';
 import { persistEndpointSettings } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
-import { esc, pretty, safeParse } from '../core/format.js';
+import { esc, parseListInput, pretty, safeParse } from '../core/format.js';
 import { toast } from '../core/toast.js';
 
 const realtime = {
@@ -62,10 +62,13 @@ function summarizeRealtimeEvent(json) {
     const seg = json.segment_id || '';
     const rev = json.revision ?? '';
     const spk = json.speaker_id != null ? ` speaker=${json.speaker_id}` : '';
+    const registered = json.speaker_match_status === 'matched'
+      ? ` registered=${json.speaker_name || json.speaker_profile_id || ''}`
+      : (json.speaker_match_status === 'unknown' ? ' registered=unknown' : '');
     const flag = json.segment_deleted ? 'deleted' : (json.is_final ? 'final' : 'draft');
     const time = formatMsRange(json.start_ms, json.end_ms);
     const preview = (json.text || '').slice(0, 80);
-    return `TranscriptUpdate seg=${seg} rev=${rev} ${json.source || ''} ${flag}${spk} ${time} text=${preview}`;
+    return `TranscriptUpdate seg=${seg} rev=${rev} ${json.source || ''} ${flag}${spk}${registered} ${time} text=${preview}`;
   }
   if (type === 'Pong') return 'Pong';
   return pretty(json);
@@ -118,6 +121,28 @@ function speakerText(speakerId, state = '') {
     return state === 'disabled' ? '无说话人' : '未知说话人';
   }
   return `S${speakerId}`;
+}
+
+function speakerIdentity(seg) {
+  const local = speakerText(seg.speaker_id, seg.speaker_state);
+  const status = seg.speaker_match_status || '';
+  const score = Number(seg.speaker_match_score);
+  const scoreText = Number.isFinite(score) ? score.toFixed(3) : '';
+  if (status === 'matched') {
+    const name = seg.speaker_name || seg.speaker_profile_id || '已注册说话人';
+    const details = [local];
+    if (seg.speaker_profile_id && seg.speaker_profile_id !== name) details.push(seg.speaker_profile_id);
+    if (scoreText) details.push(scoreText);
+    return { primary: name, secondary: details.join(' · '), status };
+  }
+  if (status === 'unknown') {
+    return {
+      primary: '未知声纹',
+      secondary: [local, scoreText].filter(Boolean).join(' · '),
+      status,
+    };
+  }
+  return { primary: local, secondary: '', status };
 }
 
 // One event stream keyed by segment_id. Draft (is_final:false) and final
@@ -404,6 +429,8 @@ function buildStartSessionPayload() {
   const speakerNum = optionalNumber('speakerNum');
   const vadThreshold = optionalNumber('vadThreshold');
   const vadMinSilence = optionalNumber('vadMinSilenceMs');
+  const groupIds = parseListInput($('realtimeSpeakerGroupIds').value);
+  const profileIds = parseListInput($('realtimeSpeakerProfileIds').value);
   const payload = {
     type: 'StartSession',
     audio_encoding: $('audioEncoding').value,
@@ -419,6 +446,8 @@ function buildStartSessionPayload() {
   };
   if (payload.speaker_num == null) delete payload.speaker_num;
   if (payload.allowed_output_languages == null) delete payload.allowed_output_languages;
+  if (groupIds.length) payload.group_ids = groupIds;
+  if (profileIds.length) payload.speaker_profile_ids = profileIds;
   if (vadThreshold != null) payload.vad_threshold = vadThreshold;
   if (vadMinSilence != null) payload.vad_min_silence_duration_ms = vadMinSilence;
   return payload;
@@ -531,6 +560,17 @@ function renderRealtimeSummary() {
   const speakers = new Set(
     segs.filter(s => s.speaker_id != null && s.speaker_id !== '').map(s => String(s.speaker_id)),
   );
+  const registeredSpeakers = new Set(
+    segs
+      .filter(s => s.speaker_match_status === 'matched')
+      .map(s => s.speaker_profile_id || s.speaker_name)
+      .filter(Boolean),
+  );
+  const unknownSpeakers = new Set(
+    segs
+      .filter(s => s.speaker_match_status === 'unknown' && s.speaker_id != null)
+      .map(s => String(s.speaker_id)),
+  );
   const speakerValue = session.session_id
     ? (session.enable_speaker ? `${speakers.size} 人` : 'disabled')
     : '-';
@@ -543,6 +583,8 @@ function renderRealtimeSummary() {
     ['最终', String(finalCount)],
     ['识别中', String(draftCount)],
     ['说话人', speakerValue],
+    ['已注册', session.session_id ? `${registeredSpeakers.size} 人` : '-'],
+    ['未知声纹', session.session_id ? `${unknownSpeakers.size} 人` : '-'],
     ['时长', duration],
   ];
   $('realtimeSummary').innerHTML = items.map(([label, value]) => `
@@ -558,11 +600,12 @@ function renderRealtimeSummary() {
 function segmentRowInner(seg) {
   const isFinal = !!seg.is_final;
   const spkKnown = seg.speaker_id != null && seg.speaker_id !== '';
-  const speaker = speakerText(seg.speaker_id, seg.speaker_state);
+  const identity = speakerIdentity(seg);
   const badge = isFinal
     ? '<span class="badge badge-final">final</span>'
     : '<span class="badge badge-partial">识别中</span>';
   const stateCls = seg.speaker_state ? ` state-${esc(seg.speaker_state)}` : '';
+  const matchCls = identity.status ? ` match-${esc(identity.status)}` : '';
   let body;
   if (Array.isArray(seg.words) && seg.words.length) {
     // Word-level timestamps: hover a character to see its time range.
@@ -574,9 +617,12 @@ function segmentRowInner(seg) {
   }
   return `
     <div class="live-time mono">${esc(formatMsRange(seg.start_ms, seg.end_ms))}</div>
-    <div class="live-speaker${stateCls}">
+    <div class="live-speaker${stateCls}${matchCls}">
       <span class="swatch" style="background:${spkKnown ? speakerColor(seg.speaker_id) : 'transparent'}"></span>
-      <span class="${spkKnown ? '' : 'muted-text'}">${esc(speaker)}</span>
+      <span class="speaker-identity">
+        <span class="speaker-primary${spkKnown ? '' : ' muted-text'}">${esc(identity.primary)}</span>
+        ${identity.secondary ? `<span class="speaker-secondary">${esc(identity.secondary)}</span>` : ''}
+      </span>
     </div>
     <div class="live-body">
       <div class="live-meta">
