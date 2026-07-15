@@ -1,5 +1,5 @@
 import { $, qsa } from '../core/dom.js';
-import { apiErrorMessage, dataOrNull, httpJson, httpUpload, summarizeHttpResponse } from '../core/api.js';
+import { apiErrorMessage, buildHttpUrl, dataOrNull, httpJson, httpUpload, summarizeHttpResponse } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
 import {
   buildQuery,
@@ -83,6 +83,7 @@ function startCreateSpeakerProfile() {
   setIfElement('speakerEnrollName', '');
   $('speakerEnrollAutoCreate').checked = false;
   updateSpeakerContext();
+  renderProfileEnrollmentPanel(null);
 }
 
 function speakerBasePayload() {
@@ -147,6 +148,7 @@ function fillSpeakerForm(profile) {
   if (groups[0]?.GroupId) $('speakerGroupId').value = groups[0].GroupId;
   if (groups[0]?.GroupName) $('speakerGroupName').value = groups[0].GroupName;
   updateSpeakerContext();
+  renderProfileEnrollmentPanel(profile);
 }
 
 function renderProfileGroups(groups) {
@@ -168,12 +170,53 @@ function renderEnrollmentList(enrollments, profileId = '') {
                 <div>样本 ID: <span class="mono">${esc(item.EnrollmentId || '-')}</span></div>
                 <div>${esc(renderEnrollmentSummary(item))}</div>
                 <div class="enrollment-quality-hint">${esc(enrollmentQualityHint(item))}</div>
+                ${item.AudioUrl ? `<audio class="enrollment-audio" controls preload="metadata" src="${esc(buildHttpUrl(item.AudioUrl))}"></audio>` : '<div class="enrollment-audio-unavailable">注册音频不可用</div>'}
               </div>
               <button class="btn-danger delete-enrollment-item-btn" data-profile-id="${esc(profileId)}" data-enrollment-id="${esc(item.EnrollmentId || '')}">删除样本</button>
             </div>
           `).join('')}
         </div>
       `;
+}
+
+function bindEnrollmentDeleteButtons(container) {
+  qsa('.delete-enrollment-item-btn', container).forEach(btn => {
+    btn.addEventListener('click', () => deleteSpeakerEnrollment(btn.dataset.enrollmentId, btn.dataset.profileId));
+  });
+}
+
+function renderProfileEnrollmentPanel(profile) {
+  const panel = $('speakerProfileEnrollments');
+  if (!profile?.SpeakerProfileId) {
+    panel.innerHTML = '<div class="profile-sub">选择人员后加载注册声纹样本</div>';
+    return;
+  }
+  const enrollments = Array.isArray(profile.Enrollments) ? profile.Enrollments : [];
+  const count = profile.EnrollmentCount ?? enrollments.length;
+  panel.innerHTML = `
+        <div class="speaker-detail-enrollments-title">已注册声纹样本（${esc(count)}）</div>
+        ${renderEnrollmentList(enrollments, profile.SpeakerProfileId)}
+      `;
+  bindEnrollmentDeleteButtons(panel);
+}
+
+async function loadProfilesWithEnrollments(items) {
+  const profiles = Array.isArray(items) ? items : [];
+  const groupId = speakerFilterGroupId();
+  return Promise.all(profiles.map(async profile => {
+    const profileId = String(profile?.SpeakerProfileId || '').trim();
+    if (!profileId) return profile;
+    try {
+      const res = await httpJson(`/api/speakers/get${buildQuery({
+        SpeakerProfileId: profileId,
+        GroupId: groupId,
+      })}`);
+      if (!res.ok || res?.json?.Response?.Error) return profile;
+      return profileFromResponse(res) || profile;
+    } catch {
+      return profile;
+    }
+  }));
 }
 
 function renderSpeakerProfiles(items) {
@@ -221,9 +264,7 @@ function renderSpeakerProfiles(items) {
   qsa('#speakerProfilesList .toggle-profile-btn').forEach(btn => {
     btn.addEventListener('click', () => quickUpdateSpeakerStatus(btn.dataset.profileId, btn.dataset.nextStatus));
   });
-  qsa('#speakerProfilesList .delete-enrollment-item-btn').forEach(btn => {
-    btn.addEventListener('click', () => deleteSpeakerEnrollment(btn.dataset.enrollmentId, btn.dataset.profileId));
-  });
+  bindEnrollmentDeleteButtons($('speakerProfilesList'));
 }
 
 function logSpeakerResponse(res, action) {
@@ -246,7 +287,8 @@ export async function listSpeakerProfiles() {
     const res = await httpJson(`/api/speakers/list${query}`);
     logSpeakerResponse(res, '列出 Profile');
     const data = dataOrNull(res) || {};
-    renderSpeakerProfiles(data.Items || []);
+    const profiles = await loadProfilesWithEnrollments(data.Items || []);
+    renderSpeakerProfiles(profiles);
     toast(`已加载 ${data.Total ?? (data.Items || []).length} 个 Profile`, 'success');
   } catch (err) {
     $('speakerProfilesList').innerHTML = `<div class="empty-state">加载失败: ${esc(err.message)}</div>`;

@@ -11,6 +11,13 @@
 
 ## [Unreleased]
 
+## [v1.5.0] - 2026-07-15
+
+### 新增
+
+- 声纹 Profile 查询新增注册样本的 `AudioUrl`，并新增 `GET /api/speakers/enrollment_audio`，可受控播放完整注册声纹音频。
+- 测试控制台在声纹管理详情和离线任务的已命中人员卡片中提供注册声纹音频播放，便于人工核对匹配结果。
+
 ### 变更
 
 - 离线任务在 `Diarize=true` 时自动复用聚类 embedding 匹配注册声纹，移除无效的独立启停字段；`GroupIds` 和 `SpeakerProfileIds` 仅用于限定候选范围。

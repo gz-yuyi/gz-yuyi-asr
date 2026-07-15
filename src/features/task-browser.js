@@ -193,6 +193,23 @@ function renderBrowserSummary(task) {
       `).join('');
 }
 
+function renderMatchedEnrollmentAudio(match) {
+  if (match?.SpeakerMatchStatus !== 'matched' || !match?.SpeakerProfileId) return '';
+  const enrollmentState = state.browser.profileEnrollments[match.SpeakerProfileId];
+  if (!enrollmentState) return '<div class="match-sample-status">加载注册样本...</div>';
+  if (enrollmentState.error) return '<div class="match-sample-status">注册样本加载失败</div>';
+  const enrollments = Array.isArray(enrollmentState.items) ? enrollmentState.items : [];
+  if (!enrollments.length) return '<div class="match-sample-status">该 Profile 没有注册样本</div>';
+  return `
+        <div class="match-enrollment-list">
+          ${enrollments.map(item => item.AudioUrl
+            ? `<audio class="enrollment-audio" controls preload="metadata" src="${esc(buildHttpUrl(item.AudioUrl))}"></audio>`
+            : '<div class="match-sample-status">注册音频不可用</div>'
+          ).join('')}
+        </div>
+      `;
+}
+
 function renderBrowserSpeakerMatches() {
   const matches = state.browser.speakerMatches;
   if (!matches.length) {
@@ -216,9 +233,32 @@ function renderBrowserSpeakerMatches() {
             <div class="match-sub">
               ProfileId: <span class="mono">${esc(match.SpeakerProfileId || '-')}</span> · score=${esc(formatMatchScore(match.SpeakerMatchScore))}
             </div>
+            ${renderMatchedEnrollmentAudio(match)}
           </div>
         `;
   }).join('');
+}
+
+async function loadMatchedProfileEnrollments(matches) {
+  const profileIds = [...new Set(matches
+    .filter(match => match?.SpeakerMatchStatus === 'matched')
+    .map(match => String(match.SpeakerProfileId || '').trim())
+    .filter(Boolean))];
+  state.browser.profileEnrollments = {};
+  renderBrowserSpeakerMatches();
+  await Promise.all(profileIds.map(async profileId => {
+    try {
+      const res = await httpJson(`/api/speakers/get${buildQuery({ SpeakerProfileId: profileId })}`);
+      if (!res.ok || res?.json?.Response?.Error) throw new Error(apiErrorMessage(res));
+      const profile = dataOrNull(res) || {};
+      state.browser.profileEnrollments[profileId] = {
+        items: Array.isArray(profile.Enrollments) ? profile.Enrollments : [],
+      };
+    } catch {
+      state.browser.profileEnrollments[profileId] = { error: true };
+    }
+  }));
+  renderBrowserSpeakerMatches();
 }
 
 function renderBrowserLegend() {
@@ -424,11 +464,13 @@ async function loadBrowserTask(taskId) {
     const task = dataOrNull(res);
     state.browser.currentTask = task;
     state.browser.speakerMatches = Array.isArray(task?.SpeakerProfileMatches) ? task.SpeakerProfileMatches : [];
+    state.browser.profileEnrollments = {};
     state.browser.segments = normalizeBrowserSegments(task);
     renderBrowserSummary(task);
     renderBrowserLegend();
     renderBrowserSpeakerMatches();
     renderBrowserSegments();
+    void loadMatchedProfileEnrollments(state.browser.speakerMatches);
 
     try {
       setBrowserViewerStatus('加载音频...');
@@ -443,6 +485,7 @@ async function loadBrowserTask(taskId) {
     state.browser.currentTask = null;
     state.browser.segments = [];
     state.browser.speakerMatches = [];
+    state.browser.profileEnrollments = {};
     renderBrowserSummary({});
     renderBrowserLegend();
     renderBrowserSpeakerMatches();

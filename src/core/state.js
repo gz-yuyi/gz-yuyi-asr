@@ -10,6 +10,7 @@ export const state = {
     currentTask: null,
     segments: [],
     speakerMatches: [],
+    profileEnrollments: {},
     audioBuffer: null,
     audioUrl: null,
     audioPlayable: false,

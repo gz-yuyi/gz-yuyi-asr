@@ -266,13 +266,36 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
           "EnrollmentId": "enr_000001",
           "EffectiveSpeechMs": 18420,
           "QualityScore": 0.91,
-          "CreatedAt": "2026-05-27 10:02:00"
+          "CreatedAt": "2026-05-27 10:02:00",
+          "AudioUrl": "/api/speakers/enrollment_audio?EnrollmentId=enr_000001"
         }
       ]
     }
   }
 }
 ```
+
+---
+
+## 播放注册声纹音频
+
+### 接口地址
+`GET /api/speakers/enrollment_audio`
+
+该接口按注册样本 ID 返回完整注册音频，可用于在声纹管理页或离线任务命中结果中进行人工比对。接口不会返回服务器上的原始文件路径。
+
+### 请求参数（Query）
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `EnrollmentId` | string | 是 | 注册样本 ID |
+
+### 响应
+
+- 本地注册音频仍存在时，直接返回音频文件流，响应类型按文件扩展名推断。
+- URL 注册音频时，响应会重定向至原始 URL。
+- 样本不存在时返回 `InvalidParameterValue`；原始音频已清理或不可访问时返回 `FailedOperation.ArtifactNotFound`。
+
+`GET /api/speakers/get` 的每个 `Enrollments` 项会在具有注册音频来源时返回 `AudioUrl`，可直接作为该接口的播放地址。
 
 ---
 
@@ -458,6 +481,7 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | `PrototypeCount` | 本次注册生成的 prototype enrollment 数；服务端未启用多 prototype 时通常为 `1` |
 | `PrototypeEnrollmentIds` | 本次注册生成的所有 prototype enrollment ID；首个 ID 与 `EnrollmentId` 一致 |
 | `EffectiveSpeechMs` | 注册样本有效语音时长；查询详情时可返回 |
+| `AudioUrl` | 注册样本原始音频的受控播放地址；查询详情时可返回 |
 | `Status` | Profile 状态 |
 
 以下字段属于内部诊断信息，不建议作为默认公开响应返回：`ModelId`、`ModelRevision`、`EmbeddingDim`、`SubsegmentDurationMs`、`SubsegmentShiftMs`、`SubsegmentCount`、`AcceptedSubsegmentCount`。如需排查注册质量或模型兼容问题，可在内部调试接口、管理后台或 debug 模式中查看。
