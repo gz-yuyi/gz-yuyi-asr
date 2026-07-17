@@ -22,6 +22,13 @@ function browserSpeakerLabel(speaker) {
   return `speaker_${speaker}`;
 }
 
+function browserSpeakers() {
+  const source = state.browser.timelineSegments.length
+    ? state.browser.timelineSegments
+    : state.browser.segments;
+  return [...new Set(source.map(seg => seg.speaker))];
+}
+
 function browserSegmentSpeakerLabel(seg) {
   if (seg?.speakerMatchStatus === 'matched') {
     return seg.speakerName || seg.speakerProfileId || browserSpeakerLabel(seg.speaker);
@@ -49,7 +56,7 @@ function browserSegmentMatchHtml(seg) {
 }
 
 function browserSpeakerColor(speaker) {
-  const speakers = [...new Set(state.browser.segments.map(seg => seg.speaker))];
+  const speakers = browserSpeakers();
   const idx = Math.max(0, speakers.indexOf(String(speaker)));
   return BROWSER_PALETTE[idx % BROWSER_PALETTE.length];
 }
@@ -272,15 +279,76 @@ function normalizeBrowserSegments(task) {
     .sort((a, b) => a.start - b.start || a.end - b.end || a.index - b.index);
 }
 
+function normalizeBrowserTimelineSegments(task, fallback) {
+  const speakerSegments = Array.isArray(task?.SpeakerSegments) ? task.SpeakerSegments : [];
+  if (!speakerSegments.length) return fallback;
+  return speakerSegments.map((item, index) => {
+    const startMs = Number(item?.StartMs ?? 0);
+    const endMs = Number(item?.EndMs ?? startMs);
+    return {
+      index,
+      start: startMs / 1000,
+      end: endMs / 1000,
+      startMs,
+      endMs,
+      speaker: String(item?.SpeakerId ?? 0),
+      speakerProfileId: item?.SpeakerProfileId || '',
+      speakerName: item?.SpeakerName || '',
+      speakerMatchScore: item?.SpeakerMatchScore,
+      speakerMatchStatus: item?.SpeakerMatchStatus || '',
+      text: '',
+      words: [],
+    };
+  }).filter(seg => Number.isFinite(seg.start) && Number.isFinite(seg.end) && seg.end > seg.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end || a.index - b.index);
+}
+
+function browserOverlapSlices() {
+  const eventsByTime = new Map();
+  state.browser.timelineSegments.forEach(seg => {
+    if (!eventsByTime.has(seg.start)) eventsByTime.set(seg.start, []);
+    if (!eventsByTime.has(seg.end)) eventsByTime.set(seg.end, []);
+    eventsByTime.get(seg.start).push([seg.speaker, 1]);
+    eventsByTime.get(seg.end).push([seg.speaker, -1]);
+  });
+  const times = [...eventsByTime.keys()].sort((a, b) => a - b);
+  const active = new Map();
+  const slices = [];
+  times.forEach((time, index) => {
+    eventsByTime.get(time).forEach(([speaker, delta]) => {
+      const count = (active.get(speaker) || 0) + delta;
+      if (count > 0) active.set(speaker, count);
+      else active.delete(speaker);
+    });
+    const nextTime = times[index + 1];
+    if (nextTime > time && active.size > 1) {
+      slices.push({ start: time, end: nextTime, speakers: [...active.keys()] });
+    }
+  });
+  return slices;
+}
+
+function browserOverlapRegions() {
+  const regions = [];
+  browserOverlapSlices().forEach(slice => {
+    const previous = regions[regions.length - 1];
+    if (previous && Math.abs(previous.end - slice.start) < 0.0001) previous.end = slice.end;
+    else regions.push({ start: slice.start, end: slice.end });
+  });
+  return regions;
+}
+
 function renderBrowserSummary(task) {
-  const speakers = new Set(state.browser.segments.map(seg => seg.speaker));
+  const speakers = new Set(browserSpeakers());
+  const overlapRegions = browserOverlapRegions();
   const matches = state.browser.speakerMatches;
   const matched = matches.filter(item => item?.SpeakerMatchStatus === 'matched').length;
   const entries = [
     ['TaskId', task?.TaskId ?? '-'],
     ['状态', task?.StatusStr || '-'],
     ['时长', task?.AudioDuration != null ? formatBrowserDuration(task.AudioDuration) : '-'],
-    ['段数 / 说话人', `${state.browser.segments.length} / ${speakers.size}`],
+    ['说话人段 / 说话人', `${state.browser.timelineSegments.length} / ${speakers.size}`],
+    ['重叠区间', overlapRegions.length],
     ['声纹匹配', matches.length ? `${matched} / ${matches.length}` : '-'],
   ];
   $('browserSummary').innerHTML = entries.map(([label, value]) => `
@@ -363,13 +431,21 @@ async function loadMatchedProfileEnrollments(matches, generation, taskId) {
 }
 
 function renderBrowserLegend() {
-  const speakers = [...new Set(state.browser.segments.map(seg => seg.speaker))];
-  $('browserLegend').innerHTML = speakers.map(speaker => `
+  const speakers = browserSpeakers();
+  const overlapCount = browserOverlapRegions().length;
+  const speakerItems = speakers.map(speaker => `
         <span class="item">
           <span class="swatch" style="background:${browserSpeakerColor(speaker)}"></span>
           <span>${esc(browserSpeakerLabel(speaker))}</span>
         </span>
       `).join('');
+  const overlapItem = state.browser.timelineMode === 'tracks' && overlapCount ? `
+        <span class="item">
+          <span class="swatch" style="background:#facc15"></span>
+          <span>${esc(`重叠区间 (${overlapCount})`)}</span>
+        </span>
+      ` : '';
+  $('browserLegend').innerHTML = speakerItems + overlapItem;
 }
 
 function renderBrowserSegments() {
@@ -411,7 +487,10 @@ function getBrowserDuration() {
   if (Number.isFinite(audioDuration) && audioDuration > 0) return audioDuration;
   const taskDuration = Number(state.browser.currentTask?.AudioDuration);
   if (Number.isFinite(taskDuration) && taskDuration > 0) return taskDuration;
-  return state.browser.segments.reduce((max, seg) => Math.max(max, seg.end), 0);
+  const source = state.browser.timelineSegments.length
+    ? state.browser.timelineSegments
+    : state.browser.segments;
+  return source.reduce((max, seg) => Math.max(max, seg.end), 0);
 }
 
 function setupBrowserCanvases(duration) {
@@ -485,14 +564,116 @@ function drawBrowserSegmentCanvas(duration = getBrowserDuration()) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, width, height);
   if (!duration) return;
-  state.browser.segments.forEach(seg => {
+  const separated = state.browser.timelineMode === 'tracks';
+  const speakers = browserSpeakers();
+  const laneHeight = speakers.length ? height / speakers.length : height;
+  state.browser.timelineSegments.forEach(seg => {
     const x = Math.max(0, (seg.start / duration) * width);
     const w = Math.max(1, ((seg.end - seg.start) / duration) * width);
+    const lane = Math.max(0, speakers.indexOf(seg.speaker));
+    const y = separated ? lane * laneHeight + 1 : 0;
+    const h = separated ? Math.max(1, laneHeight - 2) : height;
     ctx.fillStyle = browserSpeakerColor(seg.speaker);
-    ctx.globalAlpha = 0.34;
-    ctx.fillRect(x, 0, w, height);
+    ctx.globalAlpha = separated ? 0.5 : 0.34;
+    ctx.fillRect(x, y, w, h);
     ctx.globalAlpha = 1.0;
   });
+  if (separated) {
+    browserOverlapRegions().forEach(region => {
+      const x = Math.max(0, (region.start / duration) * width);
+      const w = Math.max(2, ((region.end - region.start) / duration) * width);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(x, 0, w, 4);
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.8)';
+      ctx.strokeRect(x + 0.5, 0.5, Math.max(1, w - 1), height - 1);
+    });
+  } else {
+    browserOverlapSlices().forEach(region => {
+      const x = Math.max(0, (region.start / duration) * width);
+      const w = Math.max(1, ((region.end - region.start) / duration) * width);
+      ctx.clearRect(x, 0, w, height);
+
+      region.speakers.forEach(speaker => {
+        ctx.fillStyle = browserSpeakerColor(speaker);
+        ctx.globalAlpha = 0.18;
+        ctx.fillRect(x, 0, w, height);
+      });
+
+      const stripeWidth = 9;
+      const stripeCycle = stripeWidth * region.speakers.length;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, 0, w, height);
+      ctx.clip();
+      ctx.lineWidth = stripeWidth + 1;
+      ctx.globalAlpha = 0.72;
+      region.speakers.forEach((speaker, index) => {
+        ctx.strokeStyle = browserSpeakerColor(speaker);
+        for (let offset = -height + index * stripeWidth; offset < w + height; offset += stripeCycle) {
+          ctx.beginPath();
+          ctx.moveTo(x + offset, height);
+          ctx.lineTo(x + offset + height, 0);
+          ctx.stroke();
+        }
+      });
+      ctx.restore();
+      ctx.globalAlpha = 1.0;
+    });
+  }
+}
+
+function hideBrowserTimelineTooltip() {
+  $('browserTimelineTooltip').hidden = true;
+}
+
+function updateBrowserTimelineTooltip(event) {
+  const duration = getBrowserDuration();
+  const width = $('browserWave').width;
+  if (!duration || !width) {
+    hideBrowserTimelineTooltip();
+    return;
+  }
+  const wrap = $('browserTimelineWrap');
+  const rect = wrap.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  if (x < 0 || x > width) {
+    hideBrowserTimelineTooltip();
+    return;
+  }
+  const time = (x / width) * duration;
+  const speakers = [...new Set(state.browser.timelineSegments
+    .filter(seg => time >= seg.start && time < seg.end)
+    .map(seg => seg.speaker))];
+  const tooltip = $('browserTimelineTooltip');
+  tooltip.innerHTML = `
+        <div class="timeline-tooltip-time">${esc(formatBrowserTime(time))}</div>
+        <div class="timeline-tooltip-speakers">
+          ${speakers.length ? speakers.map(speaker => `
+            <span><i style="background:${browserSpeakerColor(speaker)}"></i>${esc(browserSpeakerLabel(speaker))}</span>
+          `).join('') : '<span>无说话人</span>'}
+        </div>
+      `;
+  tooltip.hidden = false;
+  const scroll = $('browserScroll');
+  const tooltipWidth = tooltip.offsetWidth;
+  const visibleRight = scroll.scrollLeft + scroll.clientWidth;
+  const left = x + tooltipWidth + 16 > visibleRight
+    ? Math.max(scroll.scrollLeft + 8, x - tooltipWidth - 12)
+    : x + 12;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = '10px';
+}
+
+function setBrowserTimelineMode(mode) {
+  hideBrowserTimelineTooltip();
+  state.browser.timelineMode = mode === 'tracks' ? 'tracks' : 'merged';
+  qsa('#browserTimelineMode button').forEach(button => {
+    const active = button.dataset.mode === state.browser.timelineMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  renderBrowserLegend();
+  drawBrowserSegmentCanvas();
 }
 
 function updateBrowserPlayhead() {
@@ -561,6 +742,7 @@ async function loadBrowserTask(taskId) {
   clearBrowserAudio();
   state.browser.currentTask = null;
   state.browser.segments = [];
+  state.browser.timelineSegments = [];
   state.browser.speakerMatches = [];
   state.browser.profileEnrollments = {};
   updateBrowserRttmButton(null);
@@ -579,6 +761,7 @@ async function loadBrowserTask(taskId) {
     state.browser.speakerMatches = Array.isArray(task?.SpeakerProfileMatches) ? task.SpeakerProfileMatches : [];
     state.browser.profileEnrollments = {};
     state.browser.segments = normalizeBrowserSegments(task);
+    state.browser.timelineSegments = normalizeBrowserTimelineSegments(task, state.browser.segments);
     updateBrowserRttmButton(task);
     renderBrowserSummary(task);
     renderBrowserLegend();
@@ -603,6 +786,7 @@ async function loadBrowserTask(taskId) {
     if (!isCurrentBrowserLoad(generation, safeTaskId)) return;
     state.browser.currentTask = null;
     state.browser.segments = [];
+    state.browser.timelineSegments = [];
     state.browser.speakerMatches = [];
     state.browser.profileEnrollments = {};
     updateBrowserRttmButton(null);
@@ -642,6 +826,10 @@ export function registerTaskBrowser() {
     $('browserScaleVal').textContent = String(state.browser.pxPerSec);
     drawBrowserWaveform();
   });
+  qsa('#browserTimelineMode button').forEach(button => {
+    button.addEventListener('click', () => setBrowserTimelineMode(button.dataset.mode));
+  });
+  setBrowserTimelineMode(state.browser.timelineMode);
   $('browserPlayer').addEventListener('timeupdate', updateBrowserPlayhead);
   $('browserPlayer').addEventListener('seeked', updateBrowserPlayhead);
   $('browserPlayer').addEventListener('loadedmetadata', updateBrowserPlayhead);
@@ -664,6 +852,12 @@ export function registerTaskBrowser() {
     setBrowserViewerStatus(`音频加载失败: ${message}`);
   });
   $('browserScroll').addEventListener('click', seekFromTimelineClick);
+  $('browserScroll').addEventListener('mouseleave', hideBrowserTimelineTooltip);
+  $('browserTimelineWrap').addEventListener('mousemove', updateBrowserTimelineTooltip);
+  $('browserTimelineWrap').addEventListener('mouseleave', hideBrowserTimelineTooltip);
+  document.addEventListener('mousemove', event => {
+    if (!$('browserTimelineWrap').contains(event.target)) hideBrowserTimelineTooltip();
+  });
 
   return { refreshTaskList };
 }

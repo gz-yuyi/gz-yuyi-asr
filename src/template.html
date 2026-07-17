@@ -495,6 +495,10 @@
                     <input id="browserScale" type="range" min="20" max="200" step="5" value="80">
                     <span id="browserScaleVal" class="mono">80</span>
                   </label>
+                  <div class="timeline-mode" id="browserTimelineMode" role="group" aria-label="时间轴显示模式">
+                    <button type="button" data-mode="merged" class="active" aria-pressed="true">合并</button>
+                    <button type="button" data-mode="tracks" aria-pressed="false">分轨</button>
+                  </div>
                   <span class="browser-status" id="browserViewerStatus"></span>
                 </div>
                 <div class="audio-load-progress" id="browserAudioProgress" hidden>
@@ -506,6 +510,7 @@
                     <canvas id="browserWave"></canvas>
                     <canvas id="browserSegmentCanvas"></canvas>
                     <div id="browserPlayhead" class="viewer-playhead"></div>
+                    <div id="browserTimelineTooltip" class="timeline-tooltip" hidden></div>
                   </div>
                 </div>
                 <div class="speaker-legend" id="browserLegend"></div>
