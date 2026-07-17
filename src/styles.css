@@ -682,6 +682,77 @@
       display: inline-block;
       flex: 0 0 auto;
     }
+    .segment-separation-list {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 10px;
+      margin-top: 2px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .segment-separation-row {
+      display: grid;
+      grid-template-columns: minmax(220px, .9fr) auto minmax(280px, 1.1fr);
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .segment-separation-row + .segment-separation-row {
+      padding-top: 10px;
+      border-top: 1px dashed var(--border);
+    }
+    .segment-separation-meta { min-width: 0; }
+    .segment-separation-time {
+      color: var(--text);
+      font: 700 12px/1.35 var(--mono);
+    }
+    .segment-separation-speakers {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    .segment-separation-detail, .segment-separation-failed, .segment-separation-status {
+      margin-top: 4px;
+      color: var(--subtle);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    .separation-warning {
+      display: block;
+      margin-top: 4px;
+      color: var(--yellow);
+      font-size: 12px;
+    }
+    .segment-separation-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .segment-separation-original-play, .segment-separation-preview {
+      padding: 7px 9px;
+      white-space: nowrap;
+    }
+    .segment-separation-tracks {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+    .segment-separation-track {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .segment-separation-track audio {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      height: 34px;
+    }
     .segment-list {
       display: grid;
       gap: 8px;
@@ -944,6 +1015,8 @@
       .realtime-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .live-row { grid-template-columns: 1fr; }
       .segment-row { grid-template-columns: 1fr; }
+      .segment-separation-row { grid-template-columns: 1fr; align-items: start; }
+      .segment-separation-actions { justify-content: flex-start; }
       .hotword-item { grid-template-columns: 1fr; }
       .enrollment-item { grid-template-columns: 1fr; }
       .audio-load-progress { grid-template-columns: 1fr; gap: 4px; }

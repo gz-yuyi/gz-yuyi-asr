@@ -231,7 +231,18 @@ export async function downloadFile(path) {
   }
 }
 
-export async function requestBlob(path, { signal, timeoutMs, onProgress } = {}) {
+export async function requestBlob(
+  path,
+  {
+    signal,
+    timeoutMs,
+    onProgress,
+    method = 'GET',
+    body,
+    headers,
+    returnResponse = false,
+  } = {},
+) {
   const ctrl = new AbortController();
   const timeout = Number(timeoutMs ?? ($('httpTimeoutMs').value || 30000));
   const abortRequest = () => ctrl.abort();
@@ -239,7 +250,12 @@ export async function requestBlob(path, { signal, timeoutMs, onProgress } = {}) 
   else signal?.addEventListener('abort', abortRequest, { once: true });
   const timer = timeout > 0 ? setTimeout(abortRequest, timeout) : null;
   try {
-    const res = await fetch(buildHttpUrl(path), { signal: ctrl.signal });
+    const res = await fetch(buildHttpUrl(path), {
+      method,
+      body,
+      headers,
+      signal: ctrl.signal,
+    });
     const contentType = res.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       const payload = await res.json();
@@ -260,7 +276,7 @@ export async function requestBlob(path, { signal, timeoutMs, onProgress } = {}) 
         percent: lengthComputable ? 100 : null,
         done: true,
       });
-      return blob;
+      return returnResponse ? { blob, headers: res.headers, status: res.status } : blob;
     }
 
     const reader = res.body.getReader();
@@ -287,7 +303,8 @@ export async function requestBlob(path, { signal, timeoutMs, onProgress } = {}) 
       percent: lengthComputable ? 100 : null,
       done: true,
     });
-    return new Blob(chunks, { type: contentType || 'application/octet-stream' });
+    const blob = new Blob(chunks, { type: contentType || 'application/octet-stream' });
+    return returnResponse ? { blob, headers: res.headers, status: res.status } : blob;
   } finally {
     if (timer) clearTimeout(timer);
     signal?.removeEventListener('abort', abortRequest);

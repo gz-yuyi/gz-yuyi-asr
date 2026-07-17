@@ -7,6 +7,8 @@ import { toast } from '../core/toast.js';
 
 let browserLoadGeneration = 0;
 let browserAudioAbortController = null;
+const overlapPreviewCache = new Map();
+const overlapPreviewRequests = new Map();
 
 function sourceSummary(task) {
   const source = task?.SourceUrl || task?.LocalPath || '';
@@ -303,6 +305,27 @@ function normalizeBrowserTimelineSegments(task, fallback) {
     .sort((a, b) => a.start - b.start || a.end - b.end || a.index - b.index);
 }
 
+function normalizeOverlapPreviewRegions(task) {
+  const current = Array.isArray(task?.OverlapPreviewRegions) ? task.OverlapPreviewRegions : [];
+  const legacy = Array.isArray(task?.OverlapSeparation) ? task.OverlapSeparation : [];
+  const regions = current.length ? current : legacy;
+  return regions.map((item, index) => {
+    const startMs = Number(item?.StartMs ?? 0);
+    const endMs = Number(item?.EndMs ?? startMs);
+    return {
+      index,
+      regionId: String(item?.RegionId || `overlap_${index}`),
+      start: startMs / 1000,
+      end: endMs / 1000,
+      startMs,
+      endMs,
+      overlapDurationMs: Number(item?.OverlapDurationMs ?? endMs - startMs),
+      speakerIds: Array.isArray(item?.SpeakerIds) ? item.SpeakerIds.map(String) : [],
+    };
+  }).filter(region => Number.isFinite(region.start) && Number.isFinite(region.end) && region.end > region.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end || a.index - b.index);
+}
+
 function browserOverlapSlices() {
   const eventsByTime = new Map();
   state.browser.timelineSegments.forEach(seg => {
@@ -405,6 +428,270 @@ function renderBrowserSpeakerMatches() {
   }).join('');
 }
 
+function separationSpeakerLabel(speakerId) {
+  const taskLabel = browserSpeakerLabel(speakerId);
+  const temporaryLabel = `speaker_${speakerId}`;
+  return taskLabel === temporaryLabel ? temporaryLabel : `${taskLabel} · ${temporaryLabel}`;
+}
+
+function pauseSeparatedTracks(except = null) {
+  qsa('#browserSegmentList .segment-separation-audio').forEach(audio => {
+    if (audio !== except) audio.pause();
+  });
+}
+
+function overlapPreviewKey(region) {
+  return `${state.browser.currentTask?.TaskId || ''}:${region.regionId}`;
+}
+
+function clearOverlapPreviewCache() {
+  overlapPreviewRequests.forEach(controller => controller.abort());
+  overlapPreviewRequests.clear();
+  overlapPreviewCache.forEach(item => {
+    (item.urls || []).forEach(url => URL.revokeObjectURL(url));
+  });
+  overlapPreviewCache.clear();
+}
+
+function playBrowserRange(start, end) {
+  const player = $('browserPlayer');
+  if (!player.src) {
+    toast('当前任务没有可播放音频', 'error');
+    return;
+  }
+  pauseSeparatedTracks();
+  player.currentTime = start;
+  state.browser.playSegment = { start, end };
+  updateBrowserPlayhead();
+  player.play().catch(err => toast(`播放失败: ${err.message}`, 'error'));
+}
+
+function assignOverlapSeparationToSegments() {
+  const assignments = new Map();
+  state.browser.overlapPreviewRegions.forEach(region => {
+    let owner = null;
+    let largestIntersection = 0;
+    state.browser.segments.forEach(segment => {
+      const intersection = Math.max(
+        0,
+        Math.min(region.end, segment.end) - Math.max(region.start, segment.start),
+      );
+      if (intersection > largestIntersection) {
+        owner = segment;
+        largestIntersection = intersection;
+      }
+    });
+    if (!owner || largestIntersection <= 0) return;
+    const regions = assignments.get(owner.index) || [];
+    regions.push(region);
+    assignments.set(owner.index, regions);
+  });
+  return assignments;
+}
+
+function segmentSeparationHtml(regions) {
+  if (!regions.length) return '';
+  return `
+        <div class="segment-separation-list">
+          ${regions.map(region => {
+    const preview = overlapPreviewCache.get(overlapPreviewKey(region));
+    const succeeded = preview?.status === 'succeeded' && preview.urls?.length === 2;
+    const loading = preview?.status === 'loading';
+    const candidateLabels = region.speakerIds.length
+      ? region.speakerIds.map(separationSpeakerLabel).join(' / ')
+      : '候选说话人未知';
+    const quality = Number.isFinite(preview?.trackCorrelation)
+      ? ` · 轨道相关度 ${formatMatchScore(preview.trackCorrelation)}`
+      : '';
+    const warning = preview?.qualityWarning
+      ? '<span class="separation-warning">两条音轨高度相似，请人工复核</span>'
+      : '';
+    const tracks = succeeded ? preview.urls.map((audioUrl, index) => {
+      return `
+            <div class="segment-separation-track">
+              <span>音轨 ${esc(index + 1)}</span>
+              <audio class="segment-separation-audio" controls preload="none" src="${esc(audioUrl)}"></audio>
+            </div>
+          `;
+    }).join('') : loading
+      ? '<div class="segment-separation-status">分离中...</div>'
+      : preview?.status === 'failed'
+        ? `<div class="segment-separation-failed">分离失败: ${esc(preview.message || '未知错误')}</div>`
+        : '<div class="segment-separation-status">尚未分离</div>';
+    const previewLabel = preview?.status === 'failed' ? '重试分离' : '分离试听';
+    return `
+          <div class="segment-separation-row" data-region-index="${region.index}">
+            <div class="segment-separation-meta">
+              <div class="segment-separation-time">重叠 ${esc(formatBrowserTime(region.start))} - ${esc(formatBrowserTime(region.end))}</div>
+              <div class="segment-separation-speakers">${esc(candidateLabels)}</div>
+              <div class="segment-separation-detail">实际重叠 ${esc(formatBrowserDuration(region.overlapDurationMs / 1000))}${esc(quality)}</div>
+              ${warning}
+            </div>
+            <div class="segment-separation-actions">
+              <button type="button" class="btn-ghost segment-separation-original-play" data-region-index="${region.index}">播放原混音</button>
+              ${succeeded ? '' : `<button type="button" class="btn-primary segment-separation-preview" data-region-index="${region.index}" ${loading ? 'disabled' : ''}>${previewLabel}</button>`}
+            </div>
+            <div class="segment-separation-tracks">${tracks}</div>
+          </div>
+        `;
+  }).join('')}
+        </div>
+      `;
+}
+
+function bindSegmentSeparationPlayback() {
+  qsa('#browserSegmentList .segment-separation-original-play').forEach(button => {
+    button.addEventListener('click', () => {
+      const region = state.browser.overlapPreviewRegions.find(
+        item => item.index === Number(button.dataset.regionIndex),
+      );
+      if (region) playBrowserRange(region.start, region.end);
+    });
+  });
+  qsa('#browserSegmentList .segment-separation-preview').forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      const region = state.browser.overlapPreviewRegions.find(
+        item => item.index === Number(button.dataset.regionIndex),
+      );
+      if (region) void requestOverlapSeparationPreview(region);
+    });
+  });
+  qsa('#browserSegmentList .segment-separation-audio').forEach(audio => {
+    audio.addEventListener('play', () => {
+      $('browserPlayer').pause();
+      state.browser.playSegment = null;
+      pauseSeparatedTracks(audio);
+    });
+  });
+}
+
+function readAscii(view, offset, length) {
+  let value = '';
+  for (let index = 0; index < length; index += 1) {
+    value += String.fromCharCode(view.getUint8(offset + index));
+  }
+  return value;
+}
+
+function writeAscii(view, offset, value) {
+  for (let index = 0; index < value.length; index += 1) {
+    view.setUint8(offset + index, value.charCodeAt(index));
+  }
+}
+
+function monoPcm16WavBlob(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  writeAscii(view, 0, 'RIFF');
+  view.setUint32(4, buffer.byteLength - 8, true);
+  writeAscii(view, 8, 'WAVE');
+  writeAscii(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((sample, index) => view.setInt16(44 + index * 2, sample, true));
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+async function splitStereoPreview(blob) {
+  const buffer = await blob.arrayBuffer();
+  const view = new DataView(buffer);
+  if (buffer.byteLength < 44 || readAscii(view, 0, 4) !== 'RIFF' || readAscii(view, 8, 4) !== 'WAVE') {
+    throw new Error('服务返回的分离音频不是有效 WAV');
+  }
+  let offset = 12;
+  let channels = 0;
+  let sampleRate = 0;
+  let bitsPerSample = 0;
+  let dataOffset = -1;
+  let dataSize = 0;
+  while (offset + 8 <= buffer.byteLength) {
+    const chunkId = readAscii(view, offset, 4);
+    const chunkSize = view.getUint32(offset + 4, true);
+    const chunkStart = offset + 8;
+    if (chunkId === 'fmt ' && chunkSize >= 16) {
+      if (view.getUint16(chunkStart, true) !== 1) throw new Error('分离音频不是 PCM 格式');
+      channels = view.getUint16(chunkStart + 2, true);
+      sampleRate = view.getUint32(chunkStart + 4, true);
+      bitsPerSample = view.getUint16(chunkStart + 14, true);
+    } else if (chunkId === 'data') {
+      dataOffset = chunkStart;
+      dataSize = Math.min(chunkSize, buffer.byteLength - chunkStart);
+      break;
+    }
+    offset = chunkStart + chunkSize + (chunkSize % 2);
+  }
+  if (channels !== 2 || bitsPerSample !== 16 || dataOffset < 0 || !sampleRate) {
+    throw new Error('分离音频必须是双声道 PCM16 WAV');
+  }
+  const frameCount = Math.floor(dataSize / 4);
+  const first = new Int16Array(frameCount);
+  const second = new Int16Array(frameCount);
+  for (let index = 0; index < frameCount; index += 1) {
+    first[index] = view.getInt16(dataOffset + index * 4, true);
+    second[index] = view.getInt16(dataOffset + index * 4 + 2, true);
+  }
+  return [
+    URL.createObjectURL(monoPcm16WavBlob(first, sampleRate)),
+    URL.createObjectURL(monoPcm16WavBlob(second, sampleRate)),
+  ];
+}
+
+function rerenderBrowserSegmentsPreservingScroll() {
+  const list = $('browserSegmentList');
+  const scrollTop = list.scrollTop;
+  renderBrowserSegments();
+  list.scrollTop = scrollTop;
+}
+
+async function requestOverlapSeparationPreview(region) {
+  const taskId = state.browser.currentTask?.TaskId;
+  if (!taskId) return;
+  const key = overlapPreviewKey(region);
+  if (overlapPreviewRequests.has(key)) return;
+  const controller = new AbortController();
+  overlapPreviewRequests.set(key, controller);
+  overlapPreviewCache.set(key, { status: 'loading' });
+  rerenderBrowserSegmentsPreservingScroll();
+  try {
+    const response = await requestBlob('/api/asr/overlap_separation_preview', {
+      method: 'POST',
+      body: JSON.stringify({ TaskId: taskId, RegionId: region.regionId }),
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      timeoutMs: 120000,
+      returnResponse: true,
+    });
+    const urls = await splitStereoPreview(response.blob);
+    if (String(state.browser.currentTask?.TaskId) !== String(taskId)) {
+      urls.forEach(url => URL.revokeObjectURL(url));
+      return;
+    }
+    overlapPreviewCache.set(key, {
+      status: 'succeeded',
+      urls,
+      trackCorrelation: Number(response.headers.get('x-yuyi-track-correlation')),
+      qualityWarning: response.headers.get('x-yuyi-quality-warning') || '',
+    });
+  } catch (err) {
+    if (controller.signal.aborted) return;
+    overlapPreviewCache.set(key, { status: 'failed', message: err.message });
+    toast(`分离试听失败: ${err.message}`, 'error');
+  } finally {
+    overlapPreviewRequests.delete(key);
+    if (String(state.browser.currentTask?.TaskId) === String(taskId)) {
+      rerenderBrowserSegmentsPreservingScroll();
+    }
+  }
+}
+
 async function loadMatchedProfileEnrollments(matches, generation, taskId) {
   const profileIds = [...new Set(matches
     .filter(match => match?.SpeakerMatchStatus === 'matched')
@@ -454,6 +741,7 @@ function renderBrowserSegments() {
     $('browserSegmentList').innerHTML = '<div class="empty-state">这个任务没有可浏览的识别段落</div>';
     return;
   }
+  const separationAssignments = assignOverlapSeparationToSegments();
   $('browserSegmentList').innerHTML = segments.map((seg, index) => `
         <div class="segment-row" data-index="${index}">
           <div class="seg-time">${esc(formatBrowserTime(seg.start))} - ${esc(formatBrowserTime(seg.end))}</div>
@@ -466,11 +754,12 @@ function renderBrowserSegments() {
           </div>
           <div class="seg-text">${esc(seg.text || '无识别文本')}</div>
           <button class="seg-play btn-ghost" data-index="${index}">播放本段</button>
+          ${segmentSeparationHtml(separationAssignments.get(seg.index) || [])}
         </div>
       `).join('');
   qsa('#browserSegmentList .segment-row').forEach(row => {
     row.addEventListener('click', event => {
-      if (event.target.closest('button')) return;
+      if (event.target.closest('button, audio')) return;
       seekBrowserSegment(Number(row.dataset.index), false);
     });
   });
@@ -480,6 +769,7 @@ function renderBrowserSegments() {
       seekBrowserSegment(Number(btn.dataset.index), true);
     });
   });
+  bindSegmentSeparationPlayback();
 }
 
 function getBrowserDuration() {
@@ -740,9 +1030,11 @@ async function loadBrowserTask(taskId) {
   $('browserViewer').hidden = false;
   setBrowserViewerStatus('加载任务详情...');
   clearBrowserAudio();
+  clearOverlapPreviewCache();
   state.browser.currentTask = null;
   state.browser.segments = [];
   state.browser.timelineSegments = [];
+  state.browser.overlapPreviewRegions = [];
   state.browser.speakerMatches = [];
   state.browser.profileEnrollments = {};
   updateBrowserRttmButton(null);
@@ -762,6 +1054,7 @@ async function loadBrowserTask(taskId) {
     state.browser.profileEnrollments = {};
     state.browser.segments = normalizeBrowserSegments(task);
     state.browser.timelineSegments = normalizeBrowserTimelineSegments(task, state.browser.segments);
+    state.browser.overlapPreviewRegions = normalizeOverlapPreviewRegions(task);
     updateBrowserRttmButton(task);
     renderBrowserSummary(task);
     renderBrowserLegend();
@@ -787,6 +1080,7 @@ async function loadBrowserTask(taskId) {
     state.browser.currentTask = null;
     state.browser.segments = [];
     state.browser.timelineSegments = [];
+    state.browser.overlapPreviewRegions = [];
     state.browser.speakerMatches = [];
     state.browser.profileEnrollments = {};
     updateBrowserRttmButton(null);
@@ -831,6 +1125,7 @@ export function registerTaskBrowser() {
   });
   setBrowserTimelineMode(state.browser.timelineMode);
   $('browserPlayer').addEventListener('timeupdate', updateBrowserPlayhead);
+  $('browserPlayer').addEventListener('play', () => pauseSeparatedTracks());
   $('browserPlayer').addEventListener('seeked', updateBrowserPlayhead);
   $('browserPlayer').addEventListener('loadedmetadata', updateBrowserPlayhead);
   $('browserPlayer').addEventListener('canplay', () => {

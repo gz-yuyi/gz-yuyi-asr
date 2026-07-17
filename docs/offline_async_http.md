@@ -267,6 +267,12 @@
 | `Response.Data.SpeakerSegments[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
 | `Response.Data.SpeakerSegments[].SpeakerMatchScore` | number | 声纹匹配分数 |
 | `Response.Data.SpeakerSegments[].SpeakerMatchStatus` | string | `matched / unknown` |
+| `Response.Data.OverlapPreviewRegions` | array | 可按需生成试听音轨的双人重叠区间；离线任务只记录元数据，不执行语音分离、不保存分离音频 |
+| `Response.Data.OverlapPreviewRegions[].RegionId` | string | 当前任务内稳定的重叠预览区间 ID |
+| `Response.Data.OverlapPreviewRegions[].StartMs` | int | 原音频中重叠区间开始时间（毫秒） |
+| `Response.Data.OverlapPreviewRegions[].EndMs` | int | 原音频中重叠区间结束时间（毫秒） |
+| `Response.Data.OverlapPreviewRegions[].OverlapDurationMs` | int | 区间内实际检测到恰好两位说话人同时活动的累计时长（毫秒） |
+| `Response.Data.OverlapPreviewRegions[].SpeakerIds` | int[] | segmentation 给出的候选任务内临时说话人 ID；预览音轨顺序不保证与该数组顺序对应 |
 | `Response.Data.Artifacts` | object | 任务调试产物路径集合，可能包含 `VadJson`、`SubsegmentsJson`、`AsrSegmentsJson`、`SpeakerSegmentsJson`、`SpeakerRttm`、`EmbeddingStatsJson`、`DiarizationDebugJson` |
 | `Response.Data.AudioDuration` | number | 音频时长（秒） |
 | `Response.Data.ErrorMsg` | string | 错误信息（失败时返回） |
@@ -547,6 +553,44 @@
   }
 }
 ```
+
+---
+
+## 按需生成重叠区间分离试听
+
+### 接口地址
+`POST /api/asr/overlap_separation_preview`
+
+该接口只接受任务结果 `OverlapPreviewRegions` 中已经登记的区间。服务端收到请求后才调用语音分离模型，响应完成后不写入任务目录，也不修改任务结果。
+
+### 请求参数（JSON）
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `TaskId` | int | 是 | 创建任务时返回的任务 ID |
+| `RegionId` | string | 是 | `OverlapPreviewRegions[].RegionId` |
+
+```json
+{
+  "TaskId": 12,
+  "RegionId": "overlap_0000"
+}
+```
+
+### 成功响应
+
+返回 `audio/wav` 双声道 PCM16 音频。左、右声道分别是模型的两条无序输出，只覆盖 `StartMs` 到 `EndMs` 的核心重叠区间，不保证与 `SpeakerIds` 一一对应。
+
+响应头：
+
+| 响应头 | 说明 |
+| :--- | :--- |
+| `X-Yuyi-Region-Id` | 本次处理的区间 ID |
+| `X-Yuyi-Track-Correlation` | 两条输出音轨的相关度 |
+| `X-Yuyi-Quality-Warning` | 可选质量提示；两条音轨高度相似时返回 `tracks_are_highly_correlated` |
+
+### 失败响应
+
+任务不存在时返回 `FailedOperation.NoSuchTask`；区间 ID 不属于该任务时返回 `InvalidParameterValue`；任务音频已经清理时返回 `FailedOperation.ArtifactNotFound`；模型执行失败时返回 `FailedOperation.OverlapSeparationPreviewFailed`。
 
 ---
 

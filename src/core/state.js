@@ -10,6 +10,7 @@ export const state = {
     currentTask: null,
     segments: [],
     timelineSegments: [],
+    overlapPreviewRegions: [],
     speakerMatches: [],
     profileEnrollments: {},
     audioBuffer: null,
