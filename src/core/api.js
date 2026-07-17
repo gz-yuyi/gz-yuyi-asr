@@ -231,10 +231,13 @@ export async function downloadFile(path) {
   }
 }
 
-export async function requestBlob(path) {
+export async function requestBlob(path, { signal, timeoutMs, onProgress } = {}) {
   const ctrl = new AbortController();
-  const timeout = Number($('httpTimeoutMs').value || 30000);
-  const timer = setTimeout(() => ctrl.abort(), timeout);
+  const timeout = Number(timeoutMs ?? ($('httpTimeoutMs').value || 30000));
+  const abortRequest = () => ctrl.abort();
+  if (signal?.aborted) abortRequest();
+  else signal?.addEventListener('abort', abortRequest, { once: true });
+  const timer = timeout > 0 ? setTimeout(abortRequest, timeout) : null;
   try {
     const res = await fetch(buildHttpUrl(path), { signal: ctrl.signal });
     const contentType = res.headers.get('content-type') || '';
@@ -246,9 +249,48 @@ export async function requestBlob(path) {
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     }
-    return await res.blob();
+    const total = Math.max(0, Number(res.headers.get('content-length')) || 0);
+    const lengthComputable = total > 0;
+    if (!res.body || typeof onProgress !== 'function') {
+      const blob = await res.blob();
+      onProgress?.({
+        loaded: blob.size,
+        total,
+        lengthComputable,
+        percent: lengthComputable ? 100 : null,
+        done: true,
+      });
+      return blob;
+    }
+
+    const reader = res.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    onProgress({ loaded, total, lengthComputable, percent: lengthComputable ? 0 : null, done: false });
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      onProgress({
+        loaded,
+        total,
+        lengthComputable,
+        percent: lengthComputable ? Math.min(100, Math.round((loaded / total) * 100)) : null,
+        done: false,
+      });
+    }
+    onProgress({
+      loaded,
+      total,
+      lengthComputable,
+      percent: lengthComputable ? 100 : null,
+      done: true,
+    });
+    return new Blob(chunks, { type: contentType || 'application/octet-stream' });
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener('abort', abortRequest);
   }
 }
 

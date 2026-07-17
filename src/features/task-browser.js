@@ -2,8 +2,11 @@ import { BROWSER_MAX_CANVAS_WIDTH, BROWSER_PALETTE } from '../core/constants.js'
 import { $, qsa } from '../core/dom.js';
 import { state } from '../core/state.js';
 import { apiErrorMessage, buildHttpUrl, dataOrNull, httpJson, requestBlob } from '../core/api.js';
-import { buildQuery, esc, formatBrowserDuration, formatBrowserTime, formatMatchScore } from '../core/format.js';
+import { buildQuery, esc, formatBrowserDuration, formatBrowserTime, formatBytes, formatMatchScore } from '../core/format.js';
 import { toast } from '../core/toast.js';
+
+let browserLoadGeneration = 0;
+let browserAudioAbortController = null;
 
 function sourceSummary(task) {
   const source = task?.SourceUrl || task?.LocalPath || '';
@@ -59,6 +62,44 @@ function setBrowserViewerStatus(message) {
   $('browserViewerStatus').textContent = message || '';
 }
 
+function updateBrowserRttmButton(task = state.browser.currentTask) {
+  const button = $('browserDownloadRttmBtn');
+  const available = Boolean(task?.TaskId && task?.Artifacts?.SpeakerRttm);
+  button.disabled = !available;
+  button.title = available ? '导出当前任务的 RTTM 说话人时间轴' : '当前任务没有可导出的 RTTM 结果';
+}
+
+async function downloadBrowserRttm() {
+  const taskId = state.browser.currentTask?.TaskId;
+  if (!taskId) {
+    toast('请先加载任务详情', 'error');
+    return;
+  }
+  const button = $('browserDownloadRttmBtn');
+  button.disabled = true;
+  button.textContent = '导出中...';
+  try {
+    const blob = await requestBlob(
+      `/api/asr/task_result_download?TaskId=${encodeURIComponent(taskId)}&Format=rttm`,
+    );
+    if (!blob.size) throw new Error('RTTM 响应为空');
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `yuyi-asr-task-${taskId}.rttm`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast(`已导出任务 #${taskId} 的 RTTM`, 'success');
+  } catch (err) {
+    toast(`RTTM 导出失败: ${err.message}`, 'error');
+  } finally {
+    button.textContent = '导出 RTTM';
+    updateBrowserRttmButton();
+  }
+}
+
 function audioFetchMessage(error) {
   if (error?.name === 'AbortError') return '请求超时';
   if (String(error?.message || '').includes('Failed to fetch')) return '浏览器 fetch 无法读取音频响应';
@@ -75,6 +116,7 @@ function renderTaskList() {
   $('browserTaskList').innerHTML = items.map(task => {
     const active = String(task.TaskId) === String(state.browser.selectedTaskId) ? ' active' : '';
     const duration = task.AudioDuration != null ? formatBrowserDuration(task.AudioDuration) : '-';
+    const taskName = String(task.Context || '').trim() || sourceSummary(task);
     const preview = task.Preview || sourceSummary(task);
     const audioMark = task.HasAudio ? '音频' : '无音频';
     return `
@@ -83,6 +125,7 @@ function renderTaskList() {
               <span class="task-id">#${esc(task.TaskId)}</span>
               <span class="task-badge">${esc(task.StatusStr || '')}</span>
             </div>
+            <div class="task-name" title="${esc(taskName)}">${esc(taskName)}</div>
             <div class="task-preview">${esc(preview || '无识别文本')}</div>
             <div class="task-meta">
               <span>${esc(duration)}</span>
@@ -118,7 +161,43 @@ export async function refreshTaskList() {
   }
 }
 
+function isCurrentBrowserLoad(generation, taskId) {
+  return generation === browserLoadGeneration
+    && String(taskId) === String(state.browser.selectedTaskId);
+}
+
+function resetBrowserAudioProgress() {
+  const container = $('browserAudioProgress');
+  const bar = $('browserAudioProgressBar');
+  container.hidden = true;
+  bar.value = 0;
+  bar.setAttribute('value', '0');
+  $('browserAudioProgressText').textContent = '';
+}
+
+function updateBrowserAudioProgress(progress) {
+  const container = $('browserAudioProgress');
+  const bar = $('browserAudioProgressBar');
+  const loaded = formatBytes(progress?.loaded || 0);
+  container.hidden = false;
+  if (progress?.lengthComputable) {
+    const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+    bar.value = percent;
+    bar.setAttribute('value', String(percent));
+    $('browserAudioProgressText').textContent = progress?.done
+      ? `波形下载完成 · ${formatBytes(progress.total)}，正在解析...`
+      : `加载波形 ${percent}% · ${loaded} / ${formatBytes(progress.total)}`;
+  } else {
+    bar.removeAttribute('value');
+    $('browserAudioProgressText').textContent = progress?.done
+      ? `波形下载完成 · ${loaded}，正在解析...`
+      : `加载波形 · ${loaded}`;
+  }
+}
+
 function clearBrowserAudio() {
+  browserAudioAbortController?.abort();
+  browserAudioAbortController = null;
   if (state.browser.audioUrl) URL.revokeObjectURL(state.browser.audioUrl);
   state.browser.audioUrl = null;
   state.browser.audioBuffer = null;
@@ -129,25 +208,44 @@ function clearBrowserAudio() {
   player.dataset.taskId = '';
   player.removeAttribute('src');
   player.load();
+  resetBrowserAudioProgress();
 }
 
-async function loadBrowserAudio(taskId) {
-  clearBrowserAudio();
+async function loadBrowserAudio(taskId, generation) {
   const audioPath = `/api/asr/task_audio?TaskId=${encodeURIComponent(taskId)}`;
   const player = $('browserPlayer');
   player.dataset.taskId = String(taskId);
   player.src = buildHttpUrl(audioPath);
   player.load();
 
-  const blob = await requestBlob(audioPath);
-  if (!blob.size) throw new Error('音频响应为空');
-  const arrayBuffer = await blob.arrayBuffer();
-  const AudioContext = window.AudioContext || window.webkitAudioContext;
-  const ctx = new AudioContext();
+  const controller = new AbortController();
+  browserAudioAbortController = controller;
   try {
-    state.browser.audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    const configuredTimeout = Number($('httpTimeoutMs').value || 30000);
+    const blob = await requestBlob(audioPath, {
+      signal: controller.signal,
+      timeoutMs: Math.max(300000, configuredTimeout),
+      onProgress: progress => {
+        if (isCurrentBrowserLoad(generation, taskId)) updateBrowserAudioProgress(progress);
+      },
+    });
+    if (!blob.size) throw new Error('音频响应为空');
+    const arrayBuffer = await blob.arrayBuffer();
+    if (!isCurrentBrowserLoad(generation, taskId)) return false;
+
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    try {
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      if (!isCurrentBrowserLoad(generation, taskId)) return false;
+      state.browser.audioBuffer = audioBuffer;
+      resetBrowserAudioProgress();
+    } finally {
+      if (ctx.close) ctx.close().catch(() => {});
+    }
+    return true;
   } finally {
-    if (ctx.close) ctx.close().catch(() => {});
+    if (browserAudioAbortController === controller) browserAudioAbortController = null;
   }
 }
 
@@ -239,25 +337,28 @@ function renderBrowserSpeakerMatches() {
   }).join('');
 }
 
-async function loadMatchedProfileEnrollments(matches) {
+async function loadMatchedProfileEnrollments(matches, generation, taskId) {
   const profileIds = [...new Set(matches
     .filter(match => match?.SpeakerMatchStatus === 'matched')
     .map(match => String(match.SpeakerProfileId || '').trim())
     .filter(Boolean))];
+  if (!isCurrentBrowserLoad(generation, taskId)) return;
   state.browser.profileEnrollments = {};
   renderBrowserSpeakerMatches();
-  await Promise.all(profileIds.map(async profileId => {
+  const loaded = await Promise.all(profileIds.map(async profileId => {
     try {
       const res = await httpJson(`/api/speakers/get${buildQuery({ SpeakerProfileId: profileId })}`);
       if (!res.ok || res?.json?.Response?.Error) throw new Error(apiErrorMessage(res));
       const profile = dataOrNull(res) || {};
-      state.browser.profileEnrollments[profileId] = {
+      return [profileId, {
         items: Array.isArray(profile.Enrollments) ? profile.Enrollments : [],
-      };
+      }];
     } catch {
-      state.browser.profileEnrollments[profileId] = { error: true };
+      return [profileId, { error: true }];
     }
   }));
+  if (!isCurrentBrowserLoad(generation, taskId)) return;
+  state.browser.profileEnrollments = Object.fromEntries(loaded);
   renderBrowserSpeakerMatches();
 }
 
@@ -450,6 +551,7 @@ async function loadBrowserTask(taskId) {
     toast('请填写 TaskId', 'error');
     return;
   }
+  const generation = ++browserLoadGeneration;
   state.browser.selectedTaskId = safeTaskId;
   $('browserTaskId').value = safeTaskId;
   renderTaskList();
@@ -457,39 +559,58 @@ async function loadBrowserTask(taskId) {
   $('browserViewer').hidden = false;
   setBrowserViewerStatus('加载任务详情...');
   clearBrowserAudio();
+  state.browser.currentTask = null;
+  state.browser.segments = [];
+  state.browser.speakerMatches = [];
+  state.browser.profileEnrollments = {};
+  updateBrowserRttmButton(null);
+  renderBrowserSummary({});
+  renderBrowserLegend();
+  renderBrowserSpeakerMatches();
+  renderBrowserSegments();
+  drawBrowserWaveform();
 
   try {
     const res = await httpJson(`/api/asr/task_result?TaskId=${encodeURIComponent(safeTaskId)}`);
+    if (!isCurrentBrowserLoad(generation, safeTaskId)) return;
     if (!res.ok || res?.json?.Response?.Error) throw new Error(apiErrorMessage(res));
     const task = dataOrNull(res);
     state.browser.currentTask = task;
     state.browser.speakerMatches = Array.isArray(task?.SpeakerProfileMatches) ? task.SpeakerProfileMatches : [];
     state.browser.profileEnrollments = {};
     state.browser.segments = normalizeBrowserSegments(task);
+    updateBrowserRttmButton(task);
     renderBrowserSummary(task);
     renderBrowserLegend();
     renderBrowserSpeakerMatches();
     renderBrowserSegments();
-    void loadMatchedProfileEnrollments(state.browser.speakerMatches);
+    drawBrowserWaveform();
+    void loadMatchedProfileEnrollments(state.browser.speakerMatches, generation, safeTaskId);
 
     try {
       setBrowserViewerStatus('加载音频...');
-      await loadBrowserAudio(safeTaskId);
+      const loaded = await loadBrowserAudio(safeTaskId, generation);
+      if (!loaded || !isCurrentBrowserLoad(generation, safeTaskId)) return;
       setBrowserViewerStatus(`已加载 ${state.browser.segments.length} 段识别结果`);
     } catch (audioErr) {
+      if (!isCurrentBrowserLoad(generation, safeTaskId)) return;
+      resetBrowserAudioProgress();
       const prefix = state.browser.audioPlayable ? '音频可试听，波形不可用' : '播放器已直连音频接口，等待浏览器加载';
       setBrowserViewerStatus(`${prefix}: ${audioFetchMessage(audioErr)}`);
     }
     drawBrowserWaveform();
   } catch (err) {
+    if (!isCurrentBrowserLoad(generation, safeTaskId)) return;
     state.browser.currentTask = null;
     state.browser.segments = [];
     state.browser.speakerMatches = [];
     state.browser.profileEnrollments = {};
+    updateBrowserRttmButton(null);
     renderBrowserSummary({});
     renderBrowserLegend();
     renderBrowserSpeakerMatches();
     renderBrowserSegments();
+    drawBrowserWaveform();
     setBrowserViewerStatus(`加载失败: ${err.message}`);
     toast(`任务加载失败: ${err.message}`, 'error');
   }
@@ -512,6 +633,7 @@ export function registerTaskBrowser() {
   $('browserStatus').addEventListener('change', refreshTaskList);
   $('browserLimit').addEventListener('change', refreshTaskList);
   $('loadBrowserTaskBtn').addEventListener('click', () => loadBrowserTask($('browserTaskId').value));
+  $('browserDownloadRttmBtn').addEventListener('click', downloadBrowserRttm);
   $('browserTaskId').addEventListener('keydown', event => {
     if (event.key === 'Enter') loadBrowserTask($('browserTaskId').value);
   });
@@ -524,12 +646,14 @@ export function registerTaskBrowser() {
   $('browserPlayer').addEventListener('seeked', updateBrowserPlayhead);
   $('browserPlayer').addEventListener('loadedmetadata', updateBrowserPlayhead);
   $('browserPlayer').addEventListener('canplay', () => {
+    if ($('browserPlayer').dataset.taskId !== String(state.browser.selectedTaskId)) return;
     state.browser.audioPlayable = true;
     setBrowserViewerStatus(`已加载 ${state.browser.segments.length} 段识别结果，音频可试听`);
   });
   $('browserPlayer').addEventListener('error', () => {
     const player = $('browserPlayer');
     if (!player.getAttribute('src')) return;
+    if (player.dataset.taskId !== String(state.browser.selectedTaskId)) return;
     const messages = {
       1: '加载被取消',
       2: '网络错误',

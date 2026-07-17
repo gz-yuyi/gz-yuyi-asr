@@ -485,6 +485,9 @@
               <div id="browserEmpty" class="empty-state">选择一个任务后查看说话人时间轴和每段识别结果</div>
               <div id="browserViewer" class="viewer-shell" hidden>
                 <div class="viewer-summary" id="browserSummary"></div>
+                <div class="viewer-toolbar">
+                  <button class="btn-ghost" id="browserDownloadRttmBtn" disabled>导出 RTTM</button>
+                </div>
                 <audio id="browserPlayer" controls style="width: 100%;"></audio>
                 <div class="timeline-controls">
                   <label class="row" style="margin:0;">
@@ -493,6 +496,10 @@
                     <span id="browserScaleVal" class="mono">80</span>
                   </label>
                   <span class="browser-status" id="browserViewerStatus"></span>
+                </div>
+                <div class="audio-load-progress" id="browserAudioProgress" hidden>
+                  <progress id="browserAudioProgressBar" max="100" value="0"></progress>
+                  <span id="browserAudioProgressText"></span>
                 </div>
                 <div class="viewer-scroll" id="browserScroll">
                   <div class="timeline-wrap" id="browserTimelineWrap">

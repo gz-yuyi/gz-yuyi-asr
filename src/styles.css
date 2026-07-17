@@ -489,6 +489,13 @@
       font-size: 12px;
       white-space: nowrap;
     }
+    .task-name {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
     .task-preview {
       color: var(--muted);
       font-size: 13px;
@@ -532,6 +539,12 @@
     }
     .summary-label { color: var(--subtle); font-size: 12px; font-weight: 700; margin-bottom: 5px; }
     .summary-value { color: var(--text); font-weight: 750; overflow-wrap: anywhere; }
+    .viewer-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin: 0 0 12px;
+    }
+    .viewer-toolbar button { min-width: 112px; }
     .timeline-controls {
       display: flex;
       align-items: center;
@@ -541,6 +554,27 @@
       color: var(--muted);
     }
     .timeline-controls input[type="range"] { width: 190px; padding: 0; }
+    .audio-load-progress {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .audio-load-progress[hidden] { display: none; }
+    .audio-load-progress progress {
+      width: 100%;
+      height: 8px;
+      accent-color: var(--blue);
+    }
+    .audio-load-progress span {
+      min-width: 0;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
     .viewer-scroll {
       position: relative;
       width: 100%;
@@ -855,5 +889,7 @@
       .segment-row { grid-template-columns: 1fr; }
       .hotword-item { grid-template-columns: 1fr; }
       .enrollment-item { grid-template-columns: 1fr; }
+      .audio-load-progress { grid-template-columns: 1fr; gap: 4px; }
+      .audio-load-progress span { text-align: left; }
       .seg-play { width: max-content; }
     }
