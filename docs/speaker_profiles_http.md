@@ -516,13 +516,12 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 - Profile 分数建议取该 Profile 下 top enrollment 分数，或 top-k enrollment 平均分；第一版推荐取 top enrollment 分数，便于覆盖不同录音设备和场景。
 - 只有 `top1 profile score >= threshold` 且 `top1 - top2 >= margin` 时返回 `matched`；否则返回 `unknown`。
 
-## 转写任务如何启用声纹识别
+## 转写任务中的声纹识别
 
-转写任务接口仍在 [offline_async_http.md](offline_async_http.md) 中维护。`POST /api/asr/create_task` 和上传创建任务在 `Diarize=true` 时自动执行注册声纹识别，不提供独立启停字段：
+转写任务接口仍在 [offline_async_http.md](offline_async_http.md) 中维护。`POST /api/asr/create_task` 和上传创建任务固定执行说话人分离和注册声纹识别，不提供独立启停字段：
 
 | 参数名 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `Diarize` | bool | 否 | 默认 `true`；开启说话人分离时自动执行声纹匹配 |
 | `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID；不传或空数组表示匹配默认组 `default` |
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的人员 ID；不传或空数组表示匹配指定组内全部启用声纹 |
 

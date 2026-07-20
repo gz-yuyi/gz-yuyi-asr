@@ -52,7 +52,6 @@ function browserSegmentMatchHtml(seg) {
         <div class="speaker-match">
           <span class="match-badge ${matchStatusClass(seg.speakerMatchStatus)}">${esc(seg.speakerMatchStatus || 'unknown')}</span>
           ${seg.speakerProfileId ? ` <span class="mono">${esc(seg.speakerProfileId)}</span>` : ''}
-          ${seg.speakerMatchScore != null ? ` score=${esc(formatMatchScore(seg.speakerMatchScore))}` : ''}
         </div>
       `;
 }
@@ -420,7 +419,7 @@ function renderBrowserSpeakerMatches() {
               <span class="match-badge ${matchStatusClass(status)}">${esc(status)}</span>
             </div>
             <div class="match-sub">
-              ProfileId: <span class="mono">${esc(match.SpeakerProfileId || '-')}</span> · score=${esc(formatMatchScore(match.SpeakerMatchScore))}
+              ProfileId: <span class="mono">${esc(match.SpeakerProfileId || '-')}</span>
             </div>
             ${renderMatchedEnrollmentAudio(match)}
           </div>

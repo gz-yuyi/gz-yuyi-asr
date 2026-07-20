@@ -11,6 +11,13 @@
 
 ## [Unreleased]
 
+## [v1.6.1] - 2026-07-20
+
+### 修复
+
+- 离线任务固定执行说话人分离和注册声纹识别；移除无效的 `Diarize` 参数及测试控制台入口，服务实现不再暴露或读取历史 `EnableSpeakerRecognition` 与 `YUYI_ASR_SPEAKER_RECOGNITION_ENABLED` 开关。
+- 测试控制台任务浏览器不再展示声纹匹配分数，保留匹配状态、人员名称和 ProfileId 供人工核对。
+
 ## [v1.6.0] - 2026-07-17
 
 ### 新增

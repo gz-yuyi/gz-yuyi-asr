@@ -111,7 +111,6 @@ async function createOfflineTask() {
     NumberNormalizationMode: Number($('offlineNumberMode').value),
     FillerFilterMode: Number($('offlineFillerMode').value),
     ProfanityFilterMode: Number($('offlineProfanityMode').value),
-    Diarize: $('offlineDiarize').value === 'true',
   };
   const groupIds = parseListInput($('offlineSpeakerGroupIds').value);
   const profileIds = parseListInput($('offlineSpeakerProfileIds').value);
@@ -148,7 +147,6 @@ async function uploadAndCreateTask() {
     number_normalization_mode: $('offlineNumberMode').value,
     filler_filter_mode: $('offlineFillerMode').value,
     profanity_filter_mode: $('offlineProfanityMode').value,
-    Diarize: $('offlineDiarize').value,
     GroupIds: parseListInput($('offlineSpeakerGroupIds').value),
     SpeakerProfileIds: parseListInput($('offlineSpeakerProfileIds').value),
     ...offlineSpeakerAdvancedOptions(),

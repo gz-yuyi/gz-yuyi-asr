@@ -35,7 +35,6 @@
 | `HotwordId` | string | 否 | 热词表 ID |
 | `Context` | string | 否 | 识别上下文提示 |
 | `Align` | bool | 否 | 是否启用字词时间戳对齐，默认 `true` |
-| `Diarize` | bool | 否 | 是否启用说话人分离，默认 `true`；开启时自动执行注册声纹匹配 |
 | `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID；不传或空数组表示匹配默认组 `default` |
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的全局人员 ID；不传或空数组表示匹配指定组内全部启用声纹 |
 | `EnableSpeakerOverlap` | bool | 否 | 是否启用离线重叠说话检测与修正；不传则使用服务端默认配置。启用后 `SpeakerSegments` 可能出现时间重叠 |
@@ -57,7 +56,7 @@
 - 当 `asr.type=asr-offline-a3` 时，会在服务启动时加载全局静态热词；更新后需重启服务
 - `Context` 会和热词提示合并后一起传给 `A3_vllm` / `A3_llamacpp`
 - 热词表创建、查询和删除详见 [热词管理 API](hotwords_http.md)
-- `SpeakerId` 仍表示单个转写任务内的临时说话人编号；`Diarize=true` 时会自动对每个聚类说话人执行注册声纹匹配，并额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等字段
+- 离线任务固定执行说话人分离和注册声纹匹配；`SpeakerId` 表示单个转写任务内的临时说话人编号，匹配结果额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等字段
 - `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只用于限定匹配范围，不改变人员身份
 - 声纹 Profile 注册、管理和匹配策略详见 [声纹注册与识别 API](speaker_profiles_http.md)
 - 创建任务前会检查在线授权状态；授权未加载、已过期或无有效路数时直接返回 `FailedOperation.LicenseUnauthorized`，不会创建排队任务
@@ -70,7 +69,6 @@
   "CallbackUrl": "https://your-server.com/asr/callback",
   "HotwordId": "default",
   "Context": "请优先识别广州、荔湾区、圆中园等词语",
-  "Diarize": true,
   "GroupIds": ["customer_service"],
   "SpeakerProfileIds": ["spk_zhangsan", "spk_lisi"],
   "EnableSpeakerOverlap": true,
@@ -167,7 +165,6 @@
 | `hotword_id` | string | 否 | 热词表 ID |
 | `context` | string | 否 | 识别上下文提示 |
 | `Align` / `align` | bool | 否 | 是否启用字词时间戳对齐，默认 `true` |
-| `Diarize` / `diarize` | bool | 否 | 是否启用说话人分离，默认 `true`；开启时自动执行注册声纹匹配 |
 | `GroupIds` / `group_ids` | string | 否 | 限定本次任务可匹配的声纹组 ID，多个值使用逗号分隔 |
 | `SpeakerProfileIds` / `speaker_profile_ids` | string | 否 | 限定本次任务可匹配的全局人员 ID，多个值使用逗号分隔 |
 | `EnableSpeakerOverlap` | bool | 否 | 是否启用离线重叠说话检测与修正 |
@@ -759,7 +756,7 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 
 ## 注册声纹识别
 
-`POST /api/asr/create_task` 和 `POST /api/asr/create_task_upload` 在 `Diarize=true` 时自动执行注册声纹识别，不提供独立启停开关。`GroupIds` 和 `SpeakerProfileIds` 只限定候选范围。服务端复用说话人聚类阶段的 CAM++ embedding，为每个临时说话人生成去除异常窗口后的稳健质心；有效窗口少于 2 个或有效语音不足 2 秒时保持 `unknown`，其余使用与实时识别相同的阈值和候选差值策略。声纹 Profile 注册、管理和质量要求详见 [声纹注册与识别 API](speaker_profiles_http.md)。
+`POST /api/asr/create_task` 和 `POST /api/asr/create_task_upload` 固定执行说话人分离和注册声纹识别，不提供独立启停开关。`GroupIds` 和 `SpeakerProfileIds` 只限定候选范围。服务端复用说话人聚类阶段的 CAM++ embedding，为每个临时说话人生成去除异常窗口后的稳健质心；有效窗口少于 2 个或有效语音不足 2 秒时保持 `unknown`，其余使用与实时识别相同的阈值和候选差值策略。声纹 Profile 注册、管理和质量要求详见 [声纹注册与识别 API](speaker_profiles_http.md)。
 
 ---
 
