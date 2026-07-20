@@ -25,7 +25,7 @@ async function refreshSystemStatus() {
       renderKv('routeKv', [
         ['授权开关', formatBoolZh(route.LicenseEnabled), ''],
         ['授权有效', formatBoolZh(route.LicenseValid), route.LicenseValid ? 'green' : 'red'],
-        ['总路数', route.TotalRoutes, ''],
+        ['授权路数', route.LicensedRoutes ?? route.TotalRoutes, ''],
         ['实时预留', route.RealtimeReservedRoutes, ''],
         ['实时占用', route.RealtimeActiveRoutes, ''],
         ['离线占用', route.OfflineActiveRoutes, ''],

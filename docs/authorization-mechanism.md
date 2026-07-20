@@ -61,4 +61,4 @@
 
 ## 状态查询
 
-`GET /api/system/route_status` 返回授权状态、授权路数、当前 running 数、queued 数、可用处理路数、到期时间和最近刷新错误。
+`GET /api/system/route_status` 返回授权状态、授权路数、当前 running 数、queued 数、可用处理路数、到期时间和最近刷新错误。`LicensedRoutes` 和兼容字段 `TotalRoutes` 均表示授权服务下发的路数；服务内部的动态调度容量不作为授权路数对外展示。
