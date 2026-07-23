@@ -783,7 +783,14 @@
       line-height: 1.5;
       overflow-wrap: anywhere;
     }
-    .seg-play {
+    .seg-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .seg-play, .seg-download {
       padding: 7px 9px;
       font-size: 12px;
       white-space: nowrap;
@@ -1021,5 +1028,6 @@
       .enrollment-item { grid-template-columns: 1fr; }
       .audio-load-progress { grid-template-columns: 1fr; gap: 4px; }
       .audio-load-progress span { text-align: left; }
-      .seg-play { width: max-content; }
+      .seg-actions { justify-content: flex-start; }
+      .seg-play, .seg-download { width: max-content; }
     }

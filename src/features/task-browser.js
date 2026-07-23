@@ -4,6 +4,7 @@ import { state } from '../core/state.js';
 import { apiErrorMessage, buildHttpUrl, dataOrNull, httpJson, requestBlob } from '../core/api.js';
 import { buildQuery, esc, formatBrowserDuration, formatBrowserTime, formatBytes, formatMatchScore } from '../core/format.js';
 import { toast } from '../core/toast.js';
+import { audioBufferRangeToWavBlob, monoPcm16WavBlob } from '../core/wav.js';
 
 let browserLoadGeneration = 0;
 let browserAudioAbortController = null;
@@ -77,6 +78,17 @@ function updateBrowserRttmButton(task = state.browser.currentTask) {
   button.title = available ? '导出当前任务的 RTTM 说话人时间轴' : '当前任务没有可导出的 RTTM 结果';
 }
 
+function triggerBrowserDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 async function downloadBrowserRttm() {
   const taskId = state.browser.currentTask?.TaskId;
   if (!taskId) {
@@ -91,14 +103,7 @@ async function downloadBrowserRttm() {
       `/api/asr/task_result_download?TaskId=${encodeURIComponent(taskId)}&Format=rttm`,
     );
     if (!blob.size) throw new Error('RTTM 响应为空');
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `yuyi-asr-task-${taskId}.rttm`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    triggerBrowserDownload(blob, `yuyi-asr-task-${taskId}.rttm`);
     toast(`已导出任务 #${taskId} 的 RTTM`, 'success');
   } catch (err) {
     toast(`RTTM 导出失败: ${err.message}`, 'error');
@@ -247,6 +252,7 @@ async function loadBrowserAudio(taskId, generation) {
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       if (!isCurrentBrowserLoad(generation, taskId)) return false;
       state.browser.audioBuffer = audioBuffer;
+      rerenderBrowserSegmentsPreservingScroll();
       resetBrowserAudioProgress();
     } finally {
       if (ctx.close) ctx.close().catch(() => {});
@@ -465,6 +471,43 @@ function playBrowserRange(start, end) {
   player.play().catch(err => toast(`播放失败: ${err.message}`, 'error'));
 }
 
+function browserSegmentFilename(taskId, seg, index) {
+  const safeTaskId = String(taskId || 'unknown').replace(/[^0-9A-Za-z._-]+/g, '_');
+  const segmentNumber = String(index + 1).padStart(3, '0');
+  const startMs = Math.max(0, Math.round(seg.startMs));
+  const endMs = Math.max(startMs, Math.round(seg.endMs));
+  return `yuyi-asr-task-${safeTaskId}-segment-${segmentNumber}-${startMs}-${endMs}.wav`;
+}
+
+async function downloadBrowserSegment(index, button) {
+  const seg = state.browser.segments[index];
+  const audioBuffer = state.browser.audioBuffer;
+  const taskId = state.browser.currentTask?.TaskId;
+  if (!seg || !taskId) {
+    toast('当前识别段落不可用', 'error');
+    return;
+  }
+  if (!audioBuffer) {
+    toast('音频尚未加载并解析完成，暂时无法下载本段', 'error');
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = '生成中...';
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const blob = audioBufferRangeToWavBlob(audioBuffer, seg.start, seg.end);
+    const filename = browserSegmentFilename(taskId, seg, index);
+    triggerBrowserDownload(blob, filename);
+    toast(`已下载第 ${index + 1} 段音频`, 'success');
+  } catch (err) {
+    toast(`本段音频下载失败: ${err.message}`, 'error');
+  } finally {
+    button.textContent = '下载本段';
+    button.disabled = !state.browser.audioBuffer;
+  }
+}
+
 function assignOverlapSeparationToSegments() {
   const assignments = new Map();
   state.browser.overlapPreviewRegions.forEach(region => {
@@ -571,32 +614,6 @@ function readAscii(view, offset, length) {
     value += String.fromCharCode(view.getUint8(offset + index));
   }
   return value;
-}
-
-function writeAscii(view, offset, value) {
-  for (let index = 0; index < value.length; index += 1) {
-    view.setUint8(offset + index, value.charCodeAt(index));
-  }
-}
-
-function monoPcm16WavBlob(samples, sampleRate) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-  writeAscii(view, 0, 'RIFF');
-  view.setUint32(4, buffer.byteLength - 8, true);
-  writeAscii(view, 8, 'WAVE');
-  writeAscii(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeAscii(view, 36, 'data');
-  view.setUint32(40, samples.length * 2, true);
-  samples.forEach((sample, index) => view.setInt16(44 + index * 2, sample, true));
-  return new Blob([buffer], { type: 'audio/wav' });
 }
 
 async function splitStereoPreview(blob) {
@@ -741,6 +758,7 @@ function renderBrowserSegments() {
     return;
   }
   const separationAssignments = assignOverlapSeparationToSegments();
+  const canDownloadSegments = Boolean(state.browser.audioBuffer);
   $('browserSegmentList').innerHTML = segments.map((seg, index) => `
         <div class="segment-row" data-index="${index}">
           <div class="seg-time">${esc(formatBrowserTime(seg.start))} - ${esc(formatBrowserTime(seg.end))}</div>
@@ -752,7 +770,10 @@ function renderBrowserSegments() {
             ${browserSegmentMatchHtml(seg)}
           </div>
           <div class="seg-text">${esc(seg.text || '无识别文本')}</div>
-          <button class="seg-play btn-ghost" data-index="${index}">播放本段</button>
+          <div class="seg-actions">
+            <button type="button" class="seg-play btn-ghost" data-index="${index}">播放本段</button>
+            <button type="button" class="seg-download btn-ghost" data-index="${index}" ${canDownloadSegments ? '' : 'disabled'} title="${canDownloadSegments ? '将本段导出为 WAV 音频' : '音频加载并解析完成后可下载'}">下载本段</button>
+          </div>
           ${segmentSeparationHtml(separationAssignments.get(seg.index) || [])}
         </div>
       `).join('');
@@ -766,6 +787,12 @@ function renderBrowserSegments() {
     btn.addEventListener('click', event => {
       event.stopPropagation();
       seekBrowserSegment(Number(btn.dataset.index), true);
+    });
+  });
+  qsa('#browserSegmentList .seg-download').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      void downloadBrowserSegment(Number(btn.dataset.index), btn);
     });
   });
   bindSegmentSeparationPlayback();
