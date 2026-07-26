@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress';
 export default defineConfig({
   title: '语义科技ASR',
   description: '广州语义科技语音识别客户端接入文档',
-  base: '/gz-yuyi-asr/',
+  base: process.env.YUYI_DOCS_BASE || '/gz-yuyi-asr/',
   lastUpdated: true,
   ignoreDeadLinks: [/^\/console\//],
   themeConfig: {
