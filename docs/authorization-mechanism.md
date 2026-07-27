@@ -43,8 +43,10 @@
 - worker claim 任务前检查授权是否有效
 - worker 只有在 `running` 任务数小于有效处理容量时才把 `queued` 任务切到 `running`
 - 有效处理容量为 `min(OFFLINE_ASR_MAX_AUDIO_JOBS, 授权 concurrency)`
-- 授权失效后不再接收新的离线任务，也不再 claim 新任务；已有 `queued` 任务保持 pending
-- 通过环境变量加载的运行时默认强制授权；缺少 `service_url/product_id`、启动拉取失败、授权过期或授权路数为 0 都按 fail closed 处理
+- 授权失效后不再接收新的离线任务，也不再 claim 新任务；已有 `queued` 任务保持 pending，已经 `running` 的任务允许完成
+- 服务启动时立即拉取授权，并按 `OFFLINE_ASR_LICENSE_REFRESH_INTERVAL_MS` 周期刷新；任意一次网络、协议或授权服务错误都会立即撤销缓存授权，恢复刷新成功后自动恢复准入
+- 因此授权代理停服后，最迟在一个刷新周期内停止新任务和 queued claim；默认刷新周期为 60 秒
+- 通过环境变量加载的运行时默认强制授权；缺少 `service_url/product_id`、任意一次刷新失败、授权过期或授权路数为 0 都按 fail closed 处理
 
 ## 配置
 
@@ -56,7 +58,7 @@
 - `OFFLINE_ASR_LICENSE_AUTHORIZATION`
 - `OFFLINE_ASR_LICENSE_PUBLIC_KEY_PATH`
 - `OFFLINE_ASR_LICENSE_PRIVATE_KEY_PATH`
-- `OFFLINE_ASR_LICENSE_REFRESH_INTERVAL_MS`，默认 `60000`
+- `OFFLINE_ASR_LICENSE_REFRESH_INTERVAL_MS`，默认 `60000`；也是授权代理停服后的最长检测时间
 - `OFFLINE_ASR_LICENSE_TIMEOUT_MS`，默认 `5000`
 
 ## 状态查询

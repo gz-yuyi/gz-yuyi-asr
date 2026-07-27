@@ -175,7 +175,7 @@
             </div>
             <div class="fg c2">
               <label>输出语种</label>
-              <input id="realtimeAllowedLanguages" placeholder="可选：zh 或 zh,en">
+              <input id="realtimeAllowedLanguages" value="zh" placeholder="zh 或 zh,en">
             </div>
             <div class="fg c2">
               <label>数字转换</label>
@@ -272,7 +272,11 @@
               <label>Context</label>
               <input id="offlineContext" placeholder="可选提示词">
             </div>
-            <div class="fg c4">
+            <div class="fg c3">
+              <label>AllowedOutputLanguages</label>
+              <input id="offlineAllowedLanguages" value="zh" placeholder="zh 或 zh,en">
+            </div>
+            <div class="fg c3">
               <label>NumberNormalizationMode</label>
               <select id="offlineNumberMode">
                 <option value="1" selected>1 - 智能</option>
@@ -280,7 +284,7 @@
                 <option value="3">3 - 数学模式</option>
               </select>
             </div>
-            <div class="fg c4">
+            <div class="fg c3">
               <label>FillerFilterMode</label>
               <select id="offlineFillerMode">
                 <option value="0" selected>0 - 关闭</option>
@@ -288,7 +292,7 @@
                 <option value="2">2 - 严格</option>
               </select>
             </div>
-            <div class="fg c4">
+            <div class="fg c3">
               <label>ProfanityFilterMode</label>
               <select id="offlineProfanityMode">
                 <option value="0" selected>0 - 关闭</option>

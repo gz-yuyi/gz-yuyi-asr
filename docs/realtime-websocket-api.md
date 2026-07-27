@@ -69,8 +69,8 @@
 | `sample_rate` | int | 否 | `16000` | 采样率；`pcm_s16le` 时必须为 `16000`，压缩格式由解码器统一转到 `16k` |
 | `hotword_id` | string/null | 否 | `default` | 热词表 ID |
 | `context` | string/null | 否 | 空 | ASR 上下文提示 |
-| `language` | string/null | 否 | 空 | 输出语种限制（单语种），如 `zh`、`en`、`ja`、`ko`；为空不限制 |
-| `allowed_output_languages` | string/array/null | 否 | 空 | 输出语种白名单（多语种），如 `"zh,en"` 或 `["zh","en"]`；中文方言如 `Cantonese/yue` 归入 `zh` |
+| `language` | string/null | 否 | `zh` | 输出语种限制（单语种），如 `zh`、`en`、`ja`、`ko`；传入时替换默认中文限制 |
+| `allowed_output_languages` | string/array/null | 否 | `["zh"]` | 输出语种白名单（多语种），如 `"zh,en"` 或 `["zh","en"]`；中文方言如 `Cantonese/yue` 归入 `zh` |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时服务端自动执行注册声纹识别 |
@@ -93,8 +93,8 @@
 |---|---|---:|---|---|
 | `hotword_id` | string | 否 | `default` | 热词表 ID |
 | `context` | string | 否 | 空 | 识别上下文提示 |
-| `language` | string | 否 | 空 | 输出语种限制（单语种），如 `zh`、`en` |
-| `allowed_output_languages` | string | 否 | 空 | 输出语种白名单（逗号分隔），如 `zh,en` |
+| `language` | string | 否 | `zh` | 输出语种限制（单语种），如 `zh`、`en` |
+| `allowed_output_languages` | string | 否 | `zh` | 输出语种白名单（逗号分隔），如 `zh,en` |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时自动执行注册声纹识别 |
@@ -115,7 +115,7 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
 
 query 参数与新式握手的 `StartSession` 字段一一对应、语义相同。新客户端不应再使用 query 参数。
 
-输出语种白名单分两级生效：先按模型返回的语种标签做段级过滤，再对保留的段做字符级过滤——拉丁字母、数字、标点、符号和空白永远保留，不属于白名单语种文字（如中韩会话中混入的韩语/日语字符）会被剔除；含白名单语种字母表之外变音字母的拉丁词（如中英会话中的土耳其语/越南语词）整词剔除，纯 ASCII 拉丁词无法判定语种故保留；外文字符占比过半或过滤后无有效文字时整段丢弃。段级过滤只在模型明确返回可识别语种时生效；如果模型未返回语种或语种未知，服务端会保留文本，避免误删有效结果。
+不传输出语种参数时默认只允许中文（`zh`）；需要输出其它语种时显式传入相应白名单。输出语种白名单分两级生效：先按模型返回的语种标签做段级过滤，再对保留的段做字符级过滤——拉丁字母、数字、标点、符号和空白永远保留，不属于白名单语种文字（如中韩会话中混入的韩语/日语字符）会被剔除；含白名单语种字母表之外变音字母的拉丁词（如中英会话中的土耳其语/越南语词）整词剔除，纯 ASCII 拉丁词无法判定语种故保留；外文字符占比过半或过滤后无有效文字时整段丢弃。段级过滤只在模型明确返回可识别语种时生效；如果模型未返回语种或语种未知，服务端会保留文本，避免误删有效结果。
 
 ### 3.4 二进制音频帧
 
@@ -219,7 +219,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `sample_rate` | int | 实际生效的采样率 |
 | `enable_speaker` | bool | 当前会话是否启用说话人回写 |
 | `enable_speaker_recognition` | bool | 服务端计算的声纹识别状态；与 `enable_speaker` 联动，不是客户端配置项 |
-| `allowed_output_languages` | array | 实际生效的输出语种白名单；未设置时可省略 |
+| `allowed_output_languages` | array | 实际生效的输出语种白名单；默认返回 `["zh"]` |
 
 示例：
 
