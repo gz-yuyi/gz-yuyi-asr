@@ -34,7 +34,7 @@
 | `CallbackUrl` | string | 否 | 回调 URL，不填则使用轮询模式 |
 | `HotwordId` | string | 否 | 热词表 ID |
 | `Context` | string | 否 | 识别上下文提示 |
-| `AllowedOutputLanguages` | string/array[string] | 否 | 输出语种白名单，默认 `["zh"]`；可传 `"zh,en"` 或 `["zh","en"]`，也兼容单语种字段 `Language` |
+| `AllowedOutputLanguages` | string/array[string] | 否 | 输出语种白名单，默认 `["zh","en"]`；可传 `"zh"` 或 `["ja","ko"]`，也兼容单语种字段 `Language` |
 | `Align` | bool | 否 | 是否启用字词时间戳对齐，默认 `true` |
 | `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID；不传或空数组表示匹配默认组 `default` |
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的全局人员 ID；不传或空数组表示匹配指定组内全部启用声纹 |
@@ -60,7 +60,7 @@
 - 离线任务固定执行说话人分离和注册声纹匹配；`SpeakerId` 表示单个转写任务内的临时说话人编号，匹配结果额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等字段
 - `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只用于限定匹配范围，不改变人员身份
 - 声纹 Profile 注册、管理和匹配策略详见 [声纹注册与识别 API](speaker_profiles_http.md)
-- 不传 `AllowedOutputLanguages` 时默认只输出中文；需要英语等其它语种时必须显式传入对应白名单
+- 不传 `AllowedOutputLanguages` 时默认输出中文和英语；需要其它语种集合时显式传入对应白名单
 - 创建任务前会检查在线授权状态；授权未加载、已过期、后台刷新失败或无有效路数时直接返回 `FailedOperation.LicenseUnauthorized`，不会创建排队任务
 
 ### 请求示例（URL 方式）
@@ -71,7 +71,7 @@
   "CallbackUrl": "https://your-server.com/asr/callback",
   "HotwordId": "default",
   "Context": "请优先识别广州、荔湾区、圆中园等词语",
-  "AllowedOutputLanguages": ["zh"],
+  "AllowedOutputLanguages": ["zh", "en"],
   "GroupIds": ["customer_service"],
   "SpeakerProfileIds": ["spk_zhangsan", "spk_lisi"],
   "EnableSpeakerOverlap": true,
@@ -168,7 +168,7 @@
 | `callback_url` | string | 否 | 回调 URL，不填则使用轮询模式 |
 | `hotword_id` | string | 否 | 热词表 ID |
 | `context` | string | 否 | 识别上下文提示 |
-| `allowed_output_languages` | string | 否 | 输出语种白名单，默认 `zh`；多个值用逗号分隔，如 `zh,en`，也兼容 `language` |
+| `allowed_output_languages` | string | 否 | 输出语种白名单，默认 `zh,en`；多个值用逗号分隔，如 `ja,ko`，也兼容 `language` |
 | `Align` / `align` | bool | 否 | 是否启用字词时间戳对齐，默认 `true` |
 | `GroupIds` / `group_ids` | string | 否 | 限定本次任务可匹配的声纹组 ID，多个值使用逗号分隔 |
 | `SpeakerProfileIds` / `speaker_profile_ids` | string | 否 | 限定本次任务可匹配的全局人员 ID，多个值使用逗号分隔 |
