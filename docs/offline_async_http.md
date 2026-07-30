@@ -673,6 +673,7 @@
 | `resultDetail` | string | 否 | 详细结果 JSON 字符串（成功时返回） |
 | `speakerProfileMatches` | string | 否 | 当前任务内临时说话人与注册声纹匹配关系 JSON 字符串（成功且启用声纹识别时返回） |
 | `speakerSegments` | string | 否 | 说话人时间段 JSON 字符串（成功且存在说话人分段时返回） |
+| `overlapPreviewRegions` | string | 否 | 双人重叠预览区间 JSON 字符串（成功且任务结果存在 `OverlapPreviewRegions` 时返回） |
 | `audioTime` | float | 否 | 音频时长（秒，成功时返回） |
 
 ### `resultDetail` JSON 结构（字符串内容）
@@ -718,6 +719,17 @@
 | `[].SpeakerMatchScore` | number | 声纹匹配分数 |
 | `[].SpeakerMatchStatus` | string | `matched / unknown` |
 
+### `overlapPreviewRegions` JSON 结构（字符串内容）
+`overlapPreviewRegions` 字段是一个 JSON 字符串，解析后为数组，内容与任务状态查询返回的 `Response.Data.OverlapPreviewRegions` 一致：
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `[].RegionId` | string | 当前任务内稳定的重叠预览区间 ID |
+| `[].StartMs` | int | 原音频中重叠区间开始时间（毫秒） |
+| `[].EndMs` | int | 原音频中重叠区间结束时间（毫秒） |
+| `[].OverlapDurationMs` | int | 区间内实际检测到恰好两位说话人同时活动的累计时长（毫秒） |
+| `[].SpeakerIds` | int[] | segmentation 给出的候选任务内临时说话人 ID |
+
 ### 回调示例（成功，解码后可读）
 ```
 code=0
@@ -734,6 +746,9 @@ speakerProfileMatches=[
 speakerSegments=[
   {"StartMs":1000,"EndMs":3500,"SpeakerId":0,"SpeakerProfileId":"spk_zhangsan","SpeakerName":"张三","SpeakerMatchScore":0.86,"SpeakerMatchStatus":"matched"}
 ]
+overlapPreviewRegions=[
+  {"RegionId":"overlap_0000","StartMs":100,"EndMs":900,"OverlapDurationMs":800,"SpeakerIds":[0,1]}
+]
 audioTime=5.5
 ```
 
@@ -744,6 +759,7 @@ code=0
 &requestId=17695849897311
 &taskId=1
 &resultDetail=%5B%7B%22FinalSentence%22%3A%22%E4%BD%A0%E5%A5%BD%EF%BC%8C%E8%BF%99%E6%98%AF%E7%AC%AC%E4%B8%80%E6%AE%B5%E8%AF%AD%E9%9F%B3%E3%80%82%22%2C%22StartMs%22%3A1000%2C%22EndMs%22%3A3500%2C%22Emotion%22%3A%22neutral%22%2C%22EmotionScore%22%3A0.82%2C%22Words%22%3A%5B%7B%22Char%22%3A%22%E4%BD%A0%22%2C%22Time%22%3A1.02%7D%2C%7B%22Char%22%3A%22%E5%A5%BD%22%2C%22Time%22%3A1.14%7D%5D%7D%5D
+&overlapPreviewRegions=%5B%7B%22RegionId%22%3A%22overlap_0000%22%2C%22StartMs%22%3A100%2C%22EndMs%22%3A900%2C%22OverlapDurationMs%22%3A800%2C%22SpeakerIds%22%3A%5B0%2C1%5D%7D%5D
 &audioTime=5.5
 ```
 
