@@ -11,6 +11,8 @@
 
 ## [Unreleased]
 
+## [v1.5.0] - 2026-07-30
+
 ### 新增
 
 - 离线任务每条 `ResultDetail` 新增 `HasOverlap`、`OverlapDurationMs` 和 `OverlapSegments`，直接返回句内是否存在多人同时说话、实际重叠时长及按句子边界裁剪的精确重叠片段；任务状态和成功回调采用同一结构，业务侧无需再关联重叠预览区间。
