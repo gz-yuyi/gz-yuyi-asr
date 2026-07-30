@@ -13,6 +13,7 @@
 
 ### 新增
 
+- 离线任务每条 `ResultDetail` 新增 `HasOverlap`、`OverlapDurationMs` 和 `OverlapSegments`，直接返回句内是否存在多人同时说话、实际重叠时长及按句子边界裁剪的精确重叠片段；任务状态和成功回调采用同一结构，业务侧无需再关联重叠预览区间。
 - 离线任务成功回调新增 `overlapPreviewRegions` 表单字段，携带与任务状态查询 `OverlapPreviewRegions` 一致的双人重叠区间元数据。
 - 离线异步任务和上传创建任务新增 `AllowedOutputLanguages` / `allowed_output_languages` 输出语种白名单，并将配置随任务持久化；测试控制台离线任务页同步增加输出语种设置。
 

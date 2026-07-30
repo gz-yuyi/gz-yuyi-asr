@@ -245,6 +245,12 @@
 | `Response.Data.ResultDetail[].FinalSentence` | string | 单句最终文本（含标点） |
 | `Response.Data.ResultDetail[].StartMs` | int | 单句开始时间（毫秒） |
 | `Response.Data.ResultDetail[].EndMs` | int | 单句结束时间（毫秒） |
+| `Response.Data.ResultDetail[].HasOverlap` | bool | 该句时间范围内是否存在至少两位不同说话人同时活动 |
+| `Response.Data.ResultDetail[].OverlapDurationMs` | int | 该句时间范围内多人同时说话的实际累计时长（毫秒） |
+| `Response.Data.ResultDetail[].OverlapSegments` | array | 该句内的精确重叠片段；每段均已裁剪到当前句子的时间范围，无重叠时为空数组 |
+| `Response.Data.ResultDetail[].OverlapSegments[].StartMs` | int | 重叠片段开始时间（原音频绝对时间，毫秒） |
+| `Response.Data.ResultDetail[].OverlapSegments[].EndMs` | int | 重叠片段结束时间（原音频绝对时间，毫秒） |
+| `Response.Data.ResultDetail[].OverlapSegments[].SpeakerIds` | int[] | 该片段内同时活动的任务内临时说话人 ID，至少包含两项 |
 | `Response.Data.ResultDetail[].SpeakerId` | int | 说话人 ID（仅当前任务内有意义） |
 | `Response.Data.ResultDetail[].SpeakerProfileId` | string | 匹配到的注册声纹 Profile ID；未命中时缺省或为 `null` |
 | `Response.Data.ResultDetail[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
@@ -282,6 +288,8 @@
 | `Response.Error.Code` | string | 错误码（失败时返回） |
 | `Response.Error.Message` | string | 错误说明（失败时返回） |
 
+`HasOverlap`、`OverlapDurationMs` 和 `OverlapSegments` 由服务端基于原始说话人活动区间计算，不使用合并后的预览区间。`OverlapSegments` 已按当前句子的 `StartMs` / `EndMs` 裁剪，业务侧可直接使用，无需再进行时间关联。顶层 `OverlapPreviewRegions` 为预览分离接口保留的全局区域索引，普通业务可以忽略。
+
 ### 成功响应示例
 ```json
 {
@@ -303,6 +311,11 @@
           "FinalSentence": "你好，这是第一段语音。",
           "StartMs": 1000,
           "EndMs": 3500,
+          "HasOverlap": true,
+          "OverlapDurationMs": 680,
+          "OverlapSegments": [
+            {"StartMs": 1820, "EndMs": 2500, "SpeakerIds": [0, 1]}
+          ],
           "SpeakerId": 0,
           "SpeakerProfileId": "spk_zhangsan",
           "SpeakerName": "张三",
@@ -340,6 +353,22 @@
           "SpeakerName": "张三",
           "SpeakerMatchScore": 0.86,
           "SpeakerMatchStatus": "matched"
+        },
+        {
+          "StartMs": 1820,
+          "EndMs": 2500,
+          "SpeakerId": 1,
+          "SpeakerMatchScore": 0.61,
+          "SpeakerMatchStatus": "unknown"
+        }
+      ],
+      "OverlapPreviewRegions": [
+        {
+          "RegionId": "overlap_0000",
+          "StartMs": 1800,
+          "EndMs": 2520,
+          "OverlapDurationMs": 680,
+          "SpeakerIds": [0, 1]
         }
       ]
     }
@@ -389,6 +418,11 @@
           "FinalSentence": "你好，这是第一段语音。",
           "StartMs": 1000,
           "EndMs": 3500,
+          "HasOverlap": true,
+          "OverlapDurationMs": 680,
+          "OverlapSegments": [
+            {"StartMs": 1820, "EndMs": 2500, "SpeakerIds": [0, 1]}
+          ],
           "SpeakerId": 0
         }
       ]
@@ -684,6 +718,12 @@
 | `[].FinalSentence` | string | 单句最终文本（含标点） |
 | `[].StartMs` | int | 单句开始时间（毫秒） |
 | `[].EndMs` | int | 单句结束时间（毫秒） |
+| `[].HasOverlap` | bool | 该句时间范围内是否存在至少两位不同说话人同时活动 |
+| `[].OverlapDurationMs` | int | 该句时间范围内多人同时说话的实际累计时长（毫秒） |
+| `[].OverlapSegments` | array | 该句内的精确重叠片段；每段均已裁剪到当前句子的时间范围，无重叠时为空数组 |
+| `[].OverlapSegments[].StartMs` | int | 重叠片段开始时间（原音频绝对时间，毫秒） |
+| `[].OverlapSegments[].EndMs` | int | 重叠片段结束时间（原音频绝对时间，毫秒） |
+| `[].OverlapSegments[].SpeakerIds` | int[] | 该片段内同时活动的任务内临时说话人 ID，至少包含两项 |
 | `[].SpeakerId` | int | 说话人 ID（仅当前任务内有意义） |
 | `[].SpeakerProfileId` | string | 匹配到的注册声纹 Profile ID；未命中时缺省或为 `null` |
 | `[].SpeakerName` | string | 匹配到的注册声纹名称；未命中时缺省或为 `null` |
@@ -737,7 +777,7 @@ message=success
 requestId=17695849897311
 taskId=1
 resultDetail=[
-  {"FinalSentence":"你好，这是第一段语音。","StartMs":1000,"EndMs":3500,"SpeakerId":0,"SpeakerProfileId":"spk_zhangsan","SpeakerName":"张三","SpeakerMatchScore":0.86,"SpeakerMatchStatus":"matched","Emotion":"neutral","EmotionScore":0.82,
+  {"FinalSentence":"你好，这是第一段语音。","StartMs":1000,"EndMs":3500,"HasOverlap":true,"OverlapDurationMs":680,"OverlapSegments":[{"StartMs":1820,"EndMs":2500,"SpeakerIds":[0,1]}],"SpeakerId":0,"SpeakerProfileId":"spk_zhangsan","SpeakerName":"张三","SpeakerMatchScore":0.86,"SpeakerMatchStatus":"matched","Emotion":"neutral","EmotionScore":0.82,
    "Words":[{"Char":"你","Time":1.02},{"Char":"好","Time":1.14}]}
 ]
 speakerProfileMatches=[
@@ -747,7 +787,7 @@ speakerSegments=[
   {"StartMs":1000,"EndMs":3500,"SpeakerId":0,"SpeakerProfileId":"spk_zhangsan","SpeakerName":"张三","SpeakerMatchScore":0.86,"SpeakerMatchStatus":"matched"}
 ]
 overlapPreviewRegions=[
-  {"RegionId":"overlap_0000","StartMs":100,"EndMs":900,"OverlapDurationMs":800,"SpeakerIds":[0,1]}
+  {"RegionId":"overlap_0000","StartMs":1800,"EndMs":2520,"OverlapDurationMs":680,"SpeakerIds":[0,1]}
 ]
 audioTime=5.5
 ```
@@ -758,8 +798,8 @@ code=0
 &message=success
 &requestId=17695849897311
 &taskId=1
-&resultDetail=%5B%7B%22FinalSentence%22%3A%22%E4%BD%A0%E5%A5%BD%EF%BC%8C%E8%BF%99%E6%98%AF%E7%AC%AC%E4%B8%80%E6%AE%B5%E8%AF%AD%E9%9F%B3%E3%80%82%22%2C%22StartMs%22%3A1000%2C%22EndMs%22%3A3500%2C%22Emotion%22%3A%22neutral%22%2C%22EmotionScore%22%3A0.82%2C%22Words%22%3A%5B%7B%22Char%22%3A%22%E4%BD%A0%22%2C%22Time%22%3A1.02%7D%2C%7B%22Char%22%3A%22%E5%A5%BD%22%2C%22Time%22%3A1.14%7D%5D%7D%5D
-&overlapPreviewRegions=%5B%7B%22RegionId%22%3A%22overlap_0000%22%2C%22StartMs%22%3A100%2C%22EndMs%22%3A900%2C%22OverlapDurationMs%22%3A800%2C%22SpeakerIds%22%3A%5B0%2C1%5D%7D%5D
+&resultDetail=%5B%7B%22FinalSentence%22%3A%22%E4%BD%A0%E5%A5%BD%EF%BC%8C%E8%BF%99%E6%98%AF%E7%AC%AC%E4%B8%80%E6%AE%B5%E8%AF%AD%E9%9F%B3%E3%80%82%22%2C%22StartMs%22%3A1000%2C%22EndMs%22%3A3500%2C%22HasOverlap%22%3Atrue%2C%22OverlapDurationMs%22%3A680%2C%22OverlapSegments%22%3A%5B%7B%22StartMs%22%3A1820%2C%22EndMs%22%3A2500%2C%22SpeakerIds%22%3A%5B0%2C1%5D%7D%5D%2C%22Emotion%22%3A%22neutral%22%2C%22EmotionScore%22%3A0.82%2C%22Words%22%3A%5B%7B%22Char%22%3A%22%E4%BD%A0%22%2C%22Time%22%3A1.02%7D%2C%7B%22Char%22%3A%22%E5%A5%BD%22%2C%22Time%22%3A1.14%7D%5D%7D%5D
+&overlapPreviewRegions=%5B%7B%22RegionId%22%3A%22overlap_0000%22%2C%22StartMs%22%3A1800%2C%22EndMs%22%3A2520%2C%22OverlapDurationMs%22%3A680%2C%22SpeakerIds%22%3A%5B0%2C1%5D%7D%5D
 &audioTime=5.5
 ```
 
