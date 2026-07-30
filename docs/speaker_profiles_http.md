@@ -167,22 +167,36 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 }
 ```
 
-### 失败响应示例（注册质量分过低）
+### 失败响应示例（离群过滤后的有效语音不足）
 ```json
 {
   "Response": {
     "RequestId": "...",
     "Error": {
       "Code": "FailedOperation.SpeakerEnrollmentQualityTooLow",
-      "Message": "speaker enrollment quality score 0.42 is below minimum 0.6"
+      "Message": "speaker enrollment accepted audio does not meet ratio or duration fallback: accepted_ratio=0.35, min_accepted_ratio=0.6, accepted_speech_ms=4200, min_accepted_speech_ms=5000, min_accepted_ratio_floor=0.4"
     },
     "Data": {
-      "QualityScore": 0.42,
-      "MinQualityScore": 0.6
+      "QualityMetric": "AcceptedRatio",
+      "QualityScore": 0.35,
+      "MinQualityScore": 0.6,
+      "AcceptedRatio": 0.35,
+      "MinAcceptedRatio": 0.6,
+      "AcceptedSpeechMs": 4200,
+      "MinAcceptedSpeechMs": 5000,
+      "MinAcceptedRatioFloor": 0.4
     }
   }
 }
 ```
+
+`QualityScore` 和 `MinQualityScore` 是兼容字段，具体含义由 `QualityMetric` 标识：
+
+| `QualityMetric` | 附加字段 | 说明 |
+| :--- | :--- | :--- |
+| `AcceptedRatio` | `AcceptedRatio`、`MinAcceptedRatio`、`AcceptedSpeechMs`、`MinAcceptedSpeechMs`、`MinAcceptedRatioFloor` | 保留比例和有效语音时长兜底均未通过 |
+| `ConsistencyScore` | `ConsistencyScore`、`MinConsistencyScore` | 内部一致性分不足 |
+| `QualityScore` | 无 | 综合注册质量分低于配置阈值 |
 
 ---
 
@@ -499,13 +513,21 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | `YUYI_ASR_SPEAKER_MIN_ENROLL_SPEECH_MS` | `10000` | 注册时最低有效语音时长 |
 | `YUYI_ASR_SPEAKER_MIN_ENROLL_QUALITY_SCORE` | `0` | 注册质量分最低阈值；`0` 表示只返回分数不拦截 |
 | `YUYI_ASR_SPEAKER_MIN_ENROLL_CONSISTENCY_SCORE` | `0.65` | 注册声纹内部一致性最低阈值 |
-| `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO` | `0.6` | 剔除离群 subsegment 后要求保留的最小比例 |
+| `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO` | `0.6` | 剔除离群 subsegment 后首选的最小保留比例 |
+| `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_SPEECH_MS` | `5000` | 保留比例不足时的有效语音时长兜底；设为 `0` 关闭时长兜底 |
+| `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO_FLOOR` | `0.4` | 使用时长兜底时仍需达到的最低保留比例，避免超长多人混音仅凭少量目标语音通过注册 |
 | `YUYI_ASR_SPEAKER_ENROLL_OUTLIER_SIMILARITY_THRESHOLD` | `0.55` | 注册声纹 subsegment 与主声音簇代表向量的最小相似度，低于该值会作为离群片段剔除 |
 | `YUYI_ASR_SPEAKER_MAX_ENROLL_PROTOTYPES` | `3` | 每次注册最多写入的 prototype enrollment 数；设为 `1` 时退回单中心向量 |
 | `YUYI_ASR_SPEAKER_ENROLL_PROTOTYPE_SIMILARITY_THRESHOLD` | `0.82` | 生成多 prototype 时，同一局部 prototype 内 subsegment 与 seed 的最小相似度 |
 | `YUYI_ASR_SPEAKER_MIN_ENROLL_PROTOTYPE_SUBSEGMENTS` | `4` | 每个额外 prototype 至少需要覆盖的 subsegment 数 |
 | `YUYI_ASR_SPEAKER_ENROLL_SUBSEGMENT_DURATION_MS` | 跟随转写链路 | 注册时声纹子段窗口长度 |
 | `YUYI_ASR_SPEAKER_ENROLL_SUBSEGMENT_SHIFT_MS` | 跟随转写链路 | 注册时声纹子段滑动步长 |
+
+注册质量门槛：
+- 内部一致性分必须达到 `YUYI_ASR_SPEAKER_MIN_ENROLL_CONSISTENCY_SCORE`。
+- 离群过滤后的保留比例达到 `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO` 时直接通过该门槛。
+- 保留比例不足时，只有保留有效语音时长达到 `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_SPEECH_MS`，且保留比例不低于 `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO_FLOOR`，才通过时长兜底。
+- 保留有效语音时长按通过离群过滤的 subsegment 时间区间去重计算，不使用上传文件总时长。
 
 匹配策略：
 - 当前任务仍先做音频内说话人聚类，得到临时 `SpeakerId`。
