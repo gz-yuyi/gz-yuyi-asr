@@ -110,7 +110,12 @@ export async function requestText(path, options = {}) {
   const timeout = Number($('httpTimeoutMs').value || 30000);
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const res = await fetch(buildHttpUrl(path), { ...options, signal: ctrl.signal });
+    const fetchOptions = { ...options, signal: ctrl.signal };
+    const method = String(fetchOptions.method || 'GET').toUpperCase();
+    if (method === 'GET' && fetchOptions.cache == null) {
+      fetchOptions.cache = 'no-store';
+    }
+    const res = await fetch(buildHttpUrl(path), fetchOptions);
     const text = await res.text();
     return { ok: res.ok, status: res.status, text, json: safeParse(text), headers: res.headers };
   } finally {
