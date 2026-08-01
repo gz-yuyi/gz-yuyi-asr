@@ -4,7 +4,7 @@ layout: home
 hero:
   name: 语义科技ASR
   text: 客户端接入文档
-  tagline: 实时流式转写、离线录音转写、声纹注册识别、授权路数控制的接口说明。
+  tagline: 实时流式转写、离线录音转写、声纹注册识别和热词管理的客户端接口说明。
   actions:
     - theme: brand
       text: 开始接入
@@ -22,8 +22,8 @@ features:
     details: 管理 Speaker Profile、注册 enrollment，并把临时 SpeakerId 映射到已知人员。
   - title: 热词管理
     details: 维护热词表，并在实时或离线识别任务中通过热词表 ID 引用。
-  - title: 授权路数控制
-    details: 说明在线授权协议、并发路数限制和状态查询接口。
+  - title: 系统状态
+    details: 查询当前授权并发路数和到期时间。
 ---
 
 ## 文档目录
@@ -32,5 +32,5 @@ features:
 - [离线异步转写 API](./offline_async_http.md)
 - [声纹注册与识别 API](./speaker_profiles_http.md)
 - [热词管理 API](./hotwords_http.md)
-- [授权机制与调用流程](./authorization-mechanism.md)
+- [系统状态 API](./system_status_http.md)
 - [在线测试控制台](/console/)

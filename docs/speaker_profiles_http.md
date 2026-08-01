@@ -35,10 +35,7 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 
 - 注册音频应尽量只包含一个人的语音。
 - 推荐有效语音时长不少于 **10 秒**，更稳定的注册样本建议 **30 秒以上**。
-- 服务端会复用离线转写链路中的音频准备、VAD、固定窗口切片和声纹 embedding 模型。
-- 注册时不建议直接对整段音频只提一个 embedding；应先切成与识别链路一致的小片段，再对小片段 embedding 做质量过滤和聚合。
-- 同一个 `SpeakerProfileId` 可以多次注册样本；一次注册可能生成 1 条或多条 enrollment。服务端可把同一注册音频中的多个稳定主簇保存为多个 prototype enrollment，用于覆盖同一人员的不同声学状态。
-- 不同声纹模型或模型版本产生的 embedding 不应直接混用；匹配时只比较相同模型版本和向量维度的注册向量。
+- 同一个 `SpeakerProfileId` 可以多次注册样本；一次注册可能返回一条或多条 enrollment，这些样本仍表示同一个人。
 
 ---
 
@@ -148,7 +145,8 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
       "QualityScore": 0.91,
       "PrototypeCount": 3,
       "PrototypeEnrollmentIds": ["enr_000001", "enr_000002", "enr_000003"],
-      "Status": "active"
+      "Status": "active",
+      "AudioUrl": "/api/speakers/enrollment_audio?EnrollmentId=enr_000001"
     }
   }
 }
@@ -195,7 +193,7 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | `QualityMetric` | 附加字段 | 说明 |
 | :--- | :--- | :--- |
 | `AcceptedRatio` | `AcceptedRatio`、`MinAcceptedRatio`、`AcceptedSpeechMs`、`MinAcceptedSpeechMs`、`MinAcceptedRatioFloor` | 保留比例和有效语音时长兜底均未通过 |
-| `ConsistencyScore` | `ConsistencyScore`、`MinConsistencyScore` | 内部一致性分不足 |
+| `ConsistencyScore` | `ConsistencyScore`、`MinConsistencyScore` | 样本一致性分不足 |
 | `QualityScore` | 无 | 综合注册质量分低于配置阈值 |
 
 ---
@@ -235,7 +233,8 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
       "EnrollmentId": "enr_000002",
       "EnrollmentCount": 2,
       "QualityScore": 0.94,
-      "Status": "active"
+      "Status": "active",
+      "AudioUrl": "/api/speakers/enrollment_audio?EnrollmentId=enr_000002"
     }
   }
 }
@@ -296,7 +295,7 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 ### 接口地址
 `GET /api/speakers/enrollment_audio`
 
-该接口按注册样本 ID 返回完整注册音频，可用于在声纹管理页或离线任务命中结果中进行人工比对。接口不会返回服务器上的原始文件路径。
+该接口按注册样本 ID 返回可播放的完整注册音频，可用于在声纹管理页或离线任务命中结果中进行人工比对。
 
 ### 请求参数（Query）
 | 参数名 | 类型 | 必填 | 说明 |
@@ -305,11 +304,10 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 
 ### 响应
 
-- 本地注册音频仍存在时，直接返回音频文件流，响应类型按文件扩展名推断。
-- URL 注册音频时，响应会重定向至原始 URL。
-- 样本不存在时返回 `InvalidParameterValue`；原始音频已清理或不可访问时返回 `FailedOperation.ArtifactNotFound`。
+- 成功时返回浏览器可播放的音频文件流，并支持 HTTP Range 请求。
+- 样本不存在时返回 `InvalidParameterValue`；注册音频不可用时返回 `FailedOperation.ArtifactNotFound`。
 
-`GET /api/speakers/get` 的每个 `Enrollments` 项会在具有注册音频来源时返回 `AudioUrl`，可直接作为该接口的播放地址。
+`GET /api/speakers/get` 的每个 `Enrollments` 项会在注册音频可用时返回 `AudioUrl`，可直接作为该接口的播放地址。
 
 ---
 
@@ -495,58 +493,20 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | `PrototypeCount` | 本次注册生成的 prototype enrollment 数；服务端未启用多 prototype 时通常为 `1` |
 | `PrototypeEnrollmentIds` | 本次注册生成的所有 prototype enrollment ID；首个 ID 与 `EnrollmentId` 一致 |
 | `EffectiveSpeechMs` | 注册样本有效语音时长；查询详情时可返回 |
-| `AudioUrl` | 注册样本原始音频的受控播放地址；查询详情时可返回 |
+| `AudioUrl` | 注册样本的受控播放地址；查询详情且音频可用时返回 |
 | `Status` | Profile 状态 |
-
-以下字段属于内部诊断信息，不建议作为默认公开响应返回：`ModelId`、`ModelRevision`、`EmbeddingDim`、`SubsegmentDurationMs`、`SubsegmentShiftMs`、`SubsegmentCount`、`AcceptedSubsegmentCount`。如需排查注册质量或模型兼容问题，可在内部调试接口、管理后台或 debug 模式中查看。
 
 ---
 
-## 声纹识别配置建议
-
-服务端建议提供以下环境变量：
-
-| 环境变量 | 默认值 | 说明 |
-| :--- | :--- | :--- |
-| `YUYI_ASR_SPEAKER_MATCH_THRESHOLD` | `0.78` | 最低匹配分数阈值 |
-| `YUYI_ASR_SPEAKER_MATCH_MARGIN` | `0.04` | `top1 - top2` 最小差值；用于避免相近声纹误认 |
-| `YUYI_ASR_SPEAKER_MIN_ENROLL_SPEECH_MS` | `10000` | 注册时最低有效语音时长 |
-| `YUYI_ASR_SPEAKER_MIN_ENROLL_QUALITY_SCORE` | `0` | 注册质量分最低阈值；`0` 表示只返回分数不拦截 |
-| `YUYI_ASR_SPEAKER_MIN_ENROLL_CONSISTENCY_SCORE` | `0.65` | 注册声纹内部一致性最低阈值 |
-| `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO` | `0.6` | 剔除离群 subsegment 后首选的最小保留比例 |
-| `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_SPEECH_MS` | `5000` | 保留比例不足时的有效语音时长兜底；设为 `0` 关闭时长兜底 |
-| `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO_FLOOR` | `0.4` | 使用时长兜底时仍需达到的最低保留比例，避免超长多人混音仅凭少量目标语音通过注册 |
-| `YUYI_ASR_SPEAKER_ENROLL_OUTLIER_SIMILARITY_THRESHOLD` | `0.55` | 注册声纹 subsegment 与主声音簇代表向量的最小相似度，低于该值会作为离群片段剔除 |
-| `YUYI_ASR_SPEAKER_MAX_ENROLL_PROTOTYPES` | `3` | 每次注册最多写入的 prototype enrollment 数；设为 `1` 时退回单中心向量 |
-| `YUYI_ASR_SPEAKER_ENROLL_PROTOTYPE_SIMILARITY_THRESHOLD` | `0.82` | 生成多 prototype 时，同一局部 prototype 内 subsegment 与 seed 的最小相似度 |
-| `YUYI_ASR_SPEAKER_MIN_ENROLL_PROTOTYPE_SUBSEGMENTS` | `4` | 每个额外 prototype 至少需要覆盖的 subsegment 数 |
-| `YUYI_ASR_SPEAKER_ENROLL_SUBSEGMENT_DURATION_MS` | 跟随转写链路 | 注册时声纹子段窗口长度 |
-| `YUYI_ASR_SPEAKER_ENROLL_SUBSEGMENT_SHIFT_MS` | 跟随转写链路 | 注册时声纹子段滑动步长 |
-
-注册质量门槛：
-- 内部一致性分必须达到 `YUYI_ASR_SPEAKER_MIN_ENROLL_CONSISTENCY_SCORE`。
-- 离群过滤后的保留比例达到 `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO` 时直接通过该门槛。
-- 保留比例不足时，只有保留有效语音时长达到 `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_SPEECH_MS`，且保留比例不低于 `YUYI_ASR_SPEAKER_MIN_ENROLL_ACCEPTED_RATIO_FLOOR`，才通过时长兜底。
-- 保留有效语音时长按通过离群过滤的 subsegment 时间区间去重计算，不使用上传文件总时长。
-
-匹配策略：
-- 当前任务仍先做音频内说话人聚类，得到临时 `SpeakerId`。
-- 对每个临时 `SpeakerId` 汇总其子段 embedding centroid。
-- 用该 centroid 到声纹库中检索相同模型版本、相同维度的 enrollment centroid，距离使用 cosine。
-- 同一个 `SpeakerProfileId` 下可以有多个 enrollment；服务端先从向量库取候选 enrollment 分数，再归并到 Profile。
-- 多 prototype 注册会把同一注册音频中的多个稳定主簇保存为同一 Profile 下的多条 enrollment；匹配时仍按 Profile 归并，不会把这些 prototype 当成不同人员。
-- Profile 分数建议取该 Profile 下 top enrollment 分数，或 top-k enrollment 平均分；第一版推荐取 top enrollment 分数，便于覆盖不同录音设备和场景。
-- 只有 `top1 profile score >= threshold` 且 `top1 - top2 >= margin` 时返回 `matched`；否则返回 `unknown`。
-
 ## 转写任务中的声纹识别
 
-转写任务接口仍在 [offline_async_http.md](offline_async_http.md) 中维护。`POST /api/asr/create_task` 和上传创建任务固定执行说话人分离和注册声纹识别，不提供独立启停字段：
+转写任务接口仍在 [offline_async_http.md](offline_async_http.md) 中维护。`POST /api/asr/create_task` 和上传创建任务会执行注册声纹匹配；以下参数用于限定候选范围：
 
 | 参数名 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `GroupIds` | array[string] | 否 | 限定本次任务可匹配的声纹组 ID；不传或空数组表示匹配默认组 `default` |
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的人员 ID；不传或空数组表示匹配指定组内全部启用声纹 |
 
-匹配后，转写结果中的 `ResultDetail`、`SpeakerSegments` 和 `SpeakerProfileMatches` 会返回注册声纹信息。`SpeakerProfileId` 全局唯一；音频过短、候选分数不足或候选差值不足时返回 `SpeakerMatchStatus=unknown`。
+匹配后，转写结果中的 `ResultDetail`、`SpeakerSegments` 和 `SpeakerProfileMatches` 会返回注册声纹信息。`SpeakerProfileId` 全局唯一；未满足匹配条件时返回 `SpeakerMatchStatus=unknown`。
 
-实时 WebSocket 转写接口在 [realtime-websocket-api.md](realtime-websocket-api.md) 中维护。启用实时说话人回写时，服务端会自动执行注册声纹识别，不提供单独的启停参数或环境变量；可通过 `group_ids` 和 `speaker_profile_ids` 限定本次会话的候选声纹范围，并在 `TranscriptUpdate` 中返回匹配结果。
+实时 WebSocket 转写接口在 [realtime-websocket-api.md](realtime-websocket-api.md) 中维护。启用说话人回写时，可通过 `group_ids` 和 `speaker_profile_ids` 限定候选范围，并在 `TranscriptUpdate` 中接收匹配结果。

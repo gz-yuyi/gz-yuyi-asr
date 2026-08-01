@@ -170,7 +170,7 @@ function renderEnrollmentList(enrollments, profileId = '') {
                 <div>样本 ID: <span class="mono">${esc(item.EnrollmentId || '-')}</span></div>
                 <div>${esc(renderEnrollmentSummary(item))}</div>
                 <div class="enrollment-quality-hint">${esc(enrollmentQualityHint(item))}</div>
-                ${item.AudioUrl ? `<audio class="enrollment-audio" controls preload="metadata" src="${esc(buildHttpUrl(item.AudioUrl))}"></audio>` : '<div class="enrollment-audio-unavailable">注册音频不可用</div>'}
+                ${item.AudioUrl ? `<audio class="enrollment-audio" controls preload="metadata" src="${esc(buildHttpUrl(item.AudioUrl))}"></audio><div class="enrollment-audio-unavailable hidden">注册音频加载失败：源文件不存在、链接已失效或浏览器无法解码</div>` : '<div class="enrollment-audio-unavailable">注册音频不可用</div>'}
               </div>
               <button class="btn-danger delete-enrollment-item-btn" data-profile-id="${esc(profileId)}" data-enrollment-id="${esc(item.EnrollmentId || '')}">删除样本</button>
             </div>
@@ -179,9 +179,20 @@ function renderEnrollmentList(enrollments, profileId = '') {
       `;
 }
 
-function bindEnrollmentDeleteButtons(container) {
+function bindEnrollmentControls(container) {
   qsa('.delete-enrollment-item-btn', container).forEach(btn => {
     btn.addEventListener('click', () => deleteSpeakerEnrollment(btn.dataset.enrollmentId, btn.dataset.profileId));
+  });
+  qsa('.enrollment-audio', container).forEach(audio => {
+    const showPlaybackError = () => {
+      audio.classList.add('hidden');
+      const message = audio.nextElementSibling;
+      if (message?.classList.contains('enrollment-audio-unavailable')) {
+        message.classList.remove('hidden');
+      }
+    };
+    if (audio.error) showPlaybackError();
+    else audio.addEventListener('error', showPlaybackError, { once: true });
   });
 }
 
@@ -197,7 +208,7 @@ function renderProfileEnrollmentPanel(profile) {
         <div class="speaker-detail-enrollments-title">已注册声纹样本（${esc(count)}）</div>
         ${renderEnrollmentList(enrollments, profile.SpeakerProfileId)}
       `;
-  bindEnrollmentDeleteButtons(panel);
+  bindEnrollmentControls(panel);
 }
 
 async function loadProfilesWithEnrollments(items) {
@@ -264,7 +275,7 @@ function renderSpeakerProfiles(items) {
   qsa('#speakerProfilesList .toggle-profile-btn').forEach(btn => {
     btn.addEventListener('click', () => quickUpdateSpeakerStatus(btn.dataset.profileId, btn.dataset.nextStatus));
   });
-  bindEnrollmentDeleteButtons($('speakerProfilesList'));
+  bindEnrollmentControls($('speakerProfilesList'));
 }
 
 function logSpeakerResponse(res, action) {

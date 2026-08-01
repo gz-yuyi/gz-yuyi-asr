@@ -2,7 +2,7 @@
 
 本文档描述语义科技 ASR 服务的实时语音 WebSocket 协议。
 
-协议采用「单事件 + 修订」模型：服务端把同一片段的所有中间结果（低延迟草稿、离线精修、说话人回写、情绪补充）统一收敛成一条时间线上的 `TranscriptUpdate` 事件，客户端只需按 `segment_id` 保留最大 `revision`。融合工作在服务端完成，客户端保持简单。
+协议采用「单事件 + 修订」模型：同一片段的后续文本、说话人或情绪更新统一使用 `TranscriptUpdate`，客户端按 `segment_id` 保留最大 `revision`。
 
 ## 1. 地址
 
@@ -11,14 +11,12 @@
 
 协议支持两种握手方式，服务端按客户端首帧自动判定：新式握手用 `StartSession` 首帧携带配置（推荐）；v1 兼容握手用 URL query 携带配置、连接后直接发音频。详见 §3.1。
 
-## 2. 设计原则
+## 2. 协议原则
 
-- `Streaming VAD` 是唯一切段来源。
-- 一旦片段闭合，`segment_id / start_ms / end_ms` 视为稳定，不再重新切段。
-- 实时链路优先返回低延迟文本，随后可对同一 `segment_id` 发更高 `revision` 的修正结果。
-- 客户端只保留同一 `segment_id` 的最大 `revision`，服务端负责把多路结果融合到一条时间线。
-- 协议只描述角色（草稿 / 离线精修 / 说话人 / 情绪），不暴露具体模型或后端实现。说话人为离线并行、算完回填，不是实时主链路的一部分。
-- 服务端同时兼容存量 v1 客户端的握手方式（URL query + 裸控制帧），见 §3.1。两种握手下服务端事件（下行）schema 完全一致，差异只在握手与控制帧形态。
+- 片段闭合后，`segment_id / start_ms / end_ms` 保持稳定。
+- 同一 `segment_id` 可以收到更高 `revision` 的修正结果。
+- 客户端只保留同一 `segment_id` 的最大 `revision`。
+- v1 与 v2 握手使用相同的下行事件结构，差异仅在握手与控制帧形态。
 
 ## 3. 会话建立与音频
 
@@ -65,8 +63,8 @@
 | 字段名 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---:|---|---|
 | `type` | string | 是 | 无 | 固定 `StartSession` |
-| `audio_encoding` | string | 否 | `pcm_s16le` | 实时音频编码；`wav/mp3/aac/m4a/opus` 需服务端启用音频解码 |
-| `sample_rate` | int | 否 | `16000` | 采样率；`pcm_s16le` 时必须为 `16000`，压缩格式由解码器统一转到 `16k` |
+| `audio_encoding` | string | 否 | `pcm_s16le` | 实时音频编码：`pcm_s16le / wav / mp3 / aac / m4a / opus` |
+| `sample_rate` | int | 否 | `16000` | 采样率；`pcm_s16le` 时必须为 `16000` |
 | `hotword_id` | string/null | 否 | `default` | 热词表 ID |
 | `context` | string/null | 否 | 空 | ASR 上下文提示 |
 | `language` | string/null | 否 | 未设置 | 输出语种限制（单语种），如 `zh`、`en`、`ja`、`ko`；传入时替换默认中英白名单 |
@@ -81,7 +79,7 @@
 | `filler_filter_mode` | int | 否 | `0` | 语气词过滤模式：`0/1/2` |
 | `profanity_filter_mode` | int | 否 | `0` | 脏词过滤模式：`0/1/2` |
 
-注册声纹识别没有独立的客户端启停字段或环境变量：`enable_speaker=true` 时自动启用，`enable_speaker=false` 时随说话人回写一起关闭。旧客户端传入的 `enable_speaker_recognition` 会被忽略。
+注册声纹匹配随 `enable_speaker` 启用或关闭。旧客户端传入的 `enable_speaker_recognition` 会被忽略。
 
 服务端解析成功后返回 `SessionStarted`（`protocol_version=2`），其中回显实际生效的配置。若 `StartSession` 非法，返回 `ErrorResponse(error_code=SESSION_ERROR)` 并关闭连接。
 
@@ -115,7 +113,7 @@ ws://127.0.0.1:18080/api/realtime/ws?enable_speaker=true&vad_threshold=0.25&samp
 
 query 参数与新式握手的 `StartSession` 字段一一对应、语义相同。新客户端不应再使用 query 参数。
 
-不传输出语种参数时默认允许中文和英语（`zh,en`）；需要其它语种集合时显式传入相应白名单。输出语种白名单分两级生效：先按模型返回的语种标签做段级过滤，再对保留的段做字符级过滤——拉丁字母、数字、标点、符号和空白永远保留，不属于白名单语种文字（如中韩会话中混入的韩语/日语字符）会被剔除；含白名单语种字母表之外变音字母的拉丁词（如中英会话中的土耳其语/越南语词）整词剔除，纯 ASCII 拉丁词无法判定语种故保留；外文字符占比过半或过滤后无有效文字时整段丢弃。段级过滤只在模型明确返回可识别语种时生效；如果模型未返回语种或语种未知，服务端会保留文本，避免误删有效结果。
+不传输出语种参数时默认允许中文和英语（`zh,en`）；需要其它语种集合时应显式传入白名单。不符合白名单的内容可能被过滤；过滤后没有可见文本时，服务端会通过 `segment_deleted=true` 通知客户端删除该片段。
 
 ### 3.4 二进制音频帧
 
@@ -127,9 +125,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
   - 采样率：`16000`
   - 每帧字节数必须为偶数
 - `wav/mp3/aac/m4a/opus`
-  - 需服务端启用音频解码能力
-  - 服务端会先解码并重采样为内部 `PCM16LE / mono / 16kHz`
-  - 当前要求每个二进制帧本身是可独立解码的音频块
+  - 每个二进制帧必须是可独立解码的音频块
 
 如果格式不符合，服务端返回 `ErrorResponse`，`error_code=UNSUPPORTED_AUDIO_ENCODING` 或 `AUDIO_DECODE_ERROR`。
 
@@ -149,24 +145,20 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 
 #### `FinishSession` / `stop`
 
-服务端停止接收音频，冲刷尾部数据，必要时先补最终离线精修与说话人回写，再发剩余 `TranscriptUpdate`，最后返回 `SessionCompleted` 并关闭连接。
+服务端停止接收音频，发送剩余的 `TranscriptUpdate`，最后返回 `SessionCompleted` 并关闭连接。
 
 #### `CancelSession`
 
-仅新式握手提供。服务端立即取消会话，不再冲刷尾部、不再补最终精修，直接返回 `SessionCompleted`（`canceled=true`）并关闭连接。
+仅新式握手提供。服务端取消会话，不再发送剩余结果，直接返回 `SessionCompleted`（`canceled=true`）并关闭连接。
 
 其他文本消息返回 `ErrorResponse`，`error_code=INVALID_CONTROL_COMMAND`。
 
-## 4. 服务端处理流程
+## 4. 事件时序
 
-1. 接收音频帧并写入会话缓冲。
-2. `Streaming VAD` 检测语音并生成稳定片段。
-3. 活动段内持续发 `source=streaming` 的低延迟草稿（partial）。
-4. 闭段时发 `source=streaming` 的 final。
-5. 同一片段可再发 `source=offline_asr` 的更权威文本修正。
-6. 说话人侧离线并行计算，算完对相关片段发一个或多个 `source=speaker_refine` 回写。
-7. 如启用情绪分析，可对同一 `segment_id` 再发 `source=emotion_refine` 补充。
-8. 收到 `FinishSession`（或 v1 `stop`）后在必要时补最终修正，再发 `SessionCompleted`；`CancelSession` 直接结束。
+1. 会话建立后，客户端持续发送音频帧。
+2. 服务端可以对同一片段发送多次 `TranscriptUpdate`，`revision` 单调递增。
+3. `FinishSession` 后，服务端发送剩余更新和一个 `SessionCompleted`。
+4. `CancelSession` 后，服务端返回 `SessionCompleted(canceled=true)`。
 
 ## 5. 客户端状态管理规则
 
@@ -270,18 +262,14 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 
 语义说明：
 
-- `source=streaming`：低延迟文本，通常是片段的第一次结果。
-- `source=offline_asr`：更权威的文本修正。
-- `source=speaker_refine`：离线说话人聚类算完后，对 speaker 或文本做回写修正。
-- `source=emotion_refine`：对情绪标签做闭段后补充或修正。
+- `source=streaming`：片段的初始或闭段文本。
+- `source=offline_asr`：文本修正。
+- `source=speaker_refine`：说话人字段修正。
+- `source=emotion_refine`：情绪字段补充或修正。
 - `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（离线精修、说话人回填仍可能到来）。
 - `segment_deleted=true`：该片段最终文本被后处理过滤为空（例如语气词过滤后无有效内容）；客户端若已展示该 `segment_id`，应删除/隐藏；如同时存在 `supersedes_segment_id`，还应删除/隐藏被替代的父片段。
 
-情绪分析接入建议：
-
-- 第一版建议只在片段闭段后执行，不进入实时草稿路径。
-- 沿用同一 `segment_id + revision` 覆盖语义。
-- 尚无情绪结果时：`emotion=null`、`emotion_score=null`、`emotion_state=pending`；结果稳定后：`emotion_state=stable`。
+尚无情绪结果时，`emotion` 和 `emotion_score` 可以为 `null`，`emotion_state` 为 `pending`；结果稳定后 `emotion_state` 为 `stable`。
 
 示例 1：流式草稿
 
@@ -446,11 +434,11 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 {
   "type": "ErrorResponse",
   "code": 3001,
-  "message": "model inference failed",
+  "message": "recognition failed",
   "session_id": "sess_8db8f0",
   "server_time_ms": 1762900003888,
   "error_code": "ASR_INFERENCE_ERROR",
-  "detail": "streaming asr worker timeout",
+  "detail": "recognition service unavailable",
   "segment_id": "seg_000001"
 }
 ```
@@ -460,20 +448,12 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | 状态码 | error_code | 说明 |
 |---|---|---|
 | `1001` | `AUDIO_DECODE_ERROR` | 音频块解码失败 |
-| `1002` | `UNSUPPORTED_AUDIO_ENCODING` | 输入编码或采样率不支持，或当前构建未启用对应解码能力 |
+| `1002` | `UNSUPPORTED_AUDIO_ENCODING` | 输入编码或采样率不支持 |
 | `3001` | `ASR_INFERENCE_ERROR` | ASR 推理失败 |
 | `3003` | `SPEAKER_REFINE_ERROR` | 说话人回写失败 |
 | `4001` | `SESSION_ERROR` | 会话状态错误（如缺失或非法的 `StartSession`） |
 | `4002` | `INVALID_CONTROL_COMMAND` | 非法控制指令 |
 | `5000` | `INTERNAL_SERVER_ERROR` | 服务端内部异常 |
-
-协议保留、当前可能尚未实际发出的错误码：
-
-| 状态码 | 说明 |
-|---|---|
-| `2001` | 热词表不存在 |
-| `3002` | Offline ASR / 标点修正失败 |
-| `3004` | VAD 处理失败 |
 
 ## 9. 最小交互示例
 

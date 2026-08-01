@@ -1,6 +1,6 @@
 # 🔌 API 接口规范 - 离线录音转写（HTTP 异步任务模式）
 
-基于数据库的异步任务系统，支持**轮询**和**回调**两种模式获取转写结果。
+离线转写使用异步任务模式，支持通过**轮询**和**回调**两种方式获取结果。
 
 支持的离线音频格式：
 - `wav`
@@ -8,10 +8,6 @@
 - `aac`
 - `m4a`
 - `opus`
-
-说明：
-- 当构建启用了 `FFmpeg` 时，离线路径会自动解码并重采样到内部统一的 `16kHz / mono / PCM16`
-- 未启用 `FFmpeg` 的构建默认仅保证 `wav` 输入
 
 ---
 
@@ -40,7 +36,7 @@
 | `SpeakerProfileIds` | array[string] | 否 | 限定本次任务可匹配的全局人员 ID；不传或空数组表示匹配指定组内全部启用声纹 |
 | `EnableSpeakerOverlap` | bool | 否 | 是否启用离线重叠说话检测与修正；不传则使用服务端默认配置。启用后 `SpeakerSegments` 可能出现时间重叠 |
 | `SpeakerNum` | int | 否 | 本次任务已知说话人数；传入后聚类按该人数约束 |
-| `SpeakerClusterType` | string | 否 | 本次任务说话人聚类算法：`spectral`、`AHC`、`umap_hdbscan` |
+| `SpeakerClusterType` | string | 否 | 本次任务说话人聚类类型：`spectral`、`AHC`、`umap_hdbscan` |
 | `SpeakerClusterMergeCosineThreshold` | number | 否 | 本次任务相似说话人簇合并阈值，范围 `(0, 1]` |
 | `SpeakerClusterPValue` | number | 否 | 本次任务 spectral clustering 的 p-pruning 参数，范围 `(0, 1)` |
 | `SpeakerClusterMinNumSpeakers` | int | 否 | 本次任务自动估计说话人数下限 |
@@ -52,16 +48,11 @@
 | `ProfanityFilterMode` | int | 否 | 脏词过滤模式：`0/1/2`，默认 `0` |
 
 说明：
-- `HotwordId` 当前会先查本地 SQLite 热词库
-- 当 `asr.type=A3_vllm` 或 `asr.type=A3_llamacpp` 时，会映射到 `prompt`
-- 当 `asr.type=asr-offline-a3` 时，会在服务启动时加载全局静态热词；更新后需重启服务
-- `Context` 会和热词提示合并后一起传给 `A3_vllm` / `A3_llamacpp`
-- 热词表创建、查询和删除详见 [热词管理 API](hotwords_http.md)
-- 离线任务固定执行说话人分离和注册声纹匹配；`SpeakerId` 表示单个转写任务内的临时说话人编号，匹配结果额外返回 `SpeakerProfileId`、`SpeakerName`、`SpeakerMatchScore` 等字段
-- `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只用于限定匹配范围，不改变人员身份
-- 声纹 Profile 注册、管理和匹配策略详见 [声纹注册与识别 API](speaker_profiles_http.md)
-- 不传 `AllowedOutputLanguages` 时默认输出中文和英语；需要其它语种集合时显式传入对应白名单
-- 创建任务前会检查在线授权状态；授权未加载、已过期、后台刷新失败或无有效路数时直接返回 `FailedOperation.LicenseUnauthorized`，不会创建排队任务
+- 热词表创建、查询和删除详见 [热词管理 API](hotwords_http.md)。
+- `SpeakerId` 表示单个任务内的临时说话人编号；注册声纹命中结果通过 `SpeakerProfileId`、`SpeakerName` 和 `SpeakerMatchStatus` 等字段返回。
+- `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只限定候选范围，不改变人员身份。声纹管理详见 [声纹注册与识别 API](speaker_profiles_http.md)。
+- 不传 `AllowedOutputLanguages` 时默认允许中文和英语；需要其它语种集合时应显式传入白名单。
+- 授权无效时返回 `FailedOperation.LicenseUnauthorized`，且不会创建任务。
 
 ### 请求示例（URL 方式）
 ```json
@@ -152,7 +143,7 @@
 ### 接口地址
 `POST /api/asr/create_task_upload`
 
-该接口用于直接上传音频文件并创建离线转写任务。请求体为原始二进制音频内容，服务端会把文件保存到托管工作目录后按本地路径任务处理。
+该接口用于直接上传音频文件并创建离线转写任务，请求体为原始二进制音频内容。
 
 授权未加载、已过期或无有效路数时，该接口会在读取请求体前返回 `FailedOperation.LicenseUnauthorized`，不会保存上传文件或创建排队任务。
 
@@ -174,7 +165,7 @@
 | `SpeakerProfileIds` / `speaker_profile_ids` | string | 否 | 限定本次任务可匹配的全局人员 ID，多个值使用逗号分隔 |
 | `EnableSpeakerOverlap` | bool | 否 | 是否启用离线重叠说话检测与修正 |
 | `SpeakerNum` | int | 否 | 本次任务已知说话人数 |
-| `SpeakerClusterType` | string | 否 | 本次任务说话人聚类算法：`spectral`、`AHC`、`umap_hdbscan` |
+| `SpeakerClusterType` | string | 否 | 本次任务说话人聚类类型：`spectral`、`AHC`、`umap_hdbscan` |
 | `SpeakerClusterMergeCosineThreshold` | number | 否 | 本次任务相似说话人簇合并阈值，范围 `(0, 1]` |
 | `SpeakerClusterPValue` | number | 否 | 本次任务 spectral clustering 的 p-pruning 参数，范围 `(0, 1)` |
 | `SpeakerClusterMinNumSpeakers` | int | 否 | 本次任务自动估计说话人数下限 |
@@ -195,7 +186,6 @@
     "RequestId": "17695849897311",
     "Data": {
       "TaskId": 1,
-      "LocalPath": "/app/data/work/uploads/upload-xxxx.wav",
       "Bytes": 1048576
     }
   }
@@ -280,15 +270,14 @@
 | `Response.Data.OverlapPreviewRegions[].StartMs` | int | 原音频中重叠区间开始时间（毫秒） |
 | `Response.Data.OverlapPreviewRegions[].EndMs` | int | 原音频中重叠区间结束时间（毫秒） |
 | `Response.Data.OverlapPreviewRegions[].OverlapDurationMs` | int | 区间内实际检测到恰好两位说话人同时活动的累计时长（毫秒） |
-| `Response.Data.OverlapPreviewRegions[].SpeakerIds` | int[] | segmentation 给出的候选任务内临时说话人 ID；预览音轨顺序不保证与该数组顺序对应 |
-| `Response.Data.Artifacts` | object | 任务调试产物路径集合，可能包含 `VadJson`、`SubsegmentsJson`、`AsrSegmentsJson`、`SpeakerSegmentsJson`、`SpeakerRttm`、`EmbeddingStatsJson`、`DiarizationDebugJson` |
+| `Response.Data.OverlapPreviewRegions[].SpeakerIds` | int[] | 候选任务内临时说话人 ID；预览音轨顺序不保证与该数组顺序对应 |
 | `Response.Data.AudioDuration` | number | 音频时长（秒） |
 | `Response.Data.ErrorMsg` | string | 错误信息（失败时返回） |
 | `Response.Data.CallbackLastError` | string | 最近一次回调错误（有失败投递时返回） |
 | `Response.Error.Code` | string | 错误码（失败时返回） |
 | `Response.Error.Message` | string | 错误说明（失败时返回） |
 
-`HasOverlap`、`OverlapDurationMs` 和 `OverlapSegments` 由服务端基于原始说话人活动区间计算，不使用合并后的预览区间。`OverlapSegments` 已按当前句子的 `StartMs` / `EndMs` 裁剪，业务侧可直接使用，无需再进行时间关联。顶层 `OverlapPreviewRegions` 为预览分离接口保留的全局区域索引，普通业务可以忽略。
+`OverlapSegments` 已按当前句子的 `StartMs` / `EndMs` 裁剪，业务侧可以直接使用。顶层 `OverlapPreviewRegions` 用于调用重叠区间分离试听接口，普通业务可以忽略。
 
 ### 成功响应示例
 ```json
@@ -503,7 +492,6 @@
 | `Response.Data.Items[].StatusStr` | string | 状态描述 |
 | `Response.Data.Items[].SourceType` | int | 音频来源类型 |
 | `Response.Data.Items[].SourceUrl` | string | URL 来源地址 |
-| `Response.Data.Items[].LocalPath` | string | 本地来源路径或上传后保存路径 |
 | `Response.Data.Items[].HotwordId` | string | 热词表 ID |
 | `Response.Data.Items[].Context` | string | 识别上下文提示 |
 | `Response.Data.Items[].AudioDuration` | number | 音频时长（秒） |
@@ -533,7 +521,6 @@
           "StatusStr": "succeeded",
           "SourceType": 0,
           "SourceUrl": "https://example.com/audio/test.wav",
-          "LocalPath": null,
           "HotwordId": "default",
           "Context": "请优先识别广州",
           "AudioDuration": 600.0,
@@ -566,7 +553,7 @@
 ### 接口地址
 `GET /api/asr/task_audio`
 
-该接口用于获取任务关联音频。对于上传文件或本地文件任务，服务端返回文件内容；对于 URL 来源任务，如果本地无托管音频，服务端会重定向到原始 URL。
+该接口用于获取任务关联音频，客户端应同时支持直接音频响应和 HTTP 重定向。
 
 ### 请求参数（Query）
 | 参数名 | 类型 | 必填 | 说明 |
@@ -574,8 +561,8 @@
 | `TaskId` | int | 是 | 创建任务时返回的任务 ID |
 
 ### 成功响应
-- 本地文件：返回音频二进制内容，`Content-Type` 按文件类型推断。
-- URL 来源：可能返回 `3xx` 重定向到原始音频地址。
+
+返回音频二进制内容，或返回 `3xx` 重定向；客户端应跟随重定向获取音频。
 
 ### 失败响应示例（音频不存在）
 ```json
@@ -597,7 +584,7 @@
 ### 接口地址
 `POST /api/asr/overlap_separation_preview`
 
-该接口只接受任务结果 `OverlapPreviewRegions` 中已经登记的区间。服务端收到请求后才调用语音分离模型，响应完成后不写入任务目录，也不修改任务结果。
+该接口只接受任务结果 `OverlapPreviewRegions` 中已经登记的区间，按请求生成试听音频，且不会修改任务结果。
 
 ### 请求参数（JSON）
 | 参数名 | 类型 | 必填 | 说明 |
@@ -614,7 +601,7 @@
 
 ### 成功响应
 
-返回 `audio/wav` 双声道 PCM16 音频。左、右声道分别是模型的两条无序输出，只覆盖 `StartMs` 到 `EndMs` 的核心重叠区间，不保证与 `SpeakerIds` 一一对应。
+返回 `audio/wav` 双声道 PCM16 音频。左、右声道是两条无序输出音轨，只覆盖 `StartMs` 到 `EndMs` 的核心重叠区间，不保证与 `SpeakerIds` 一一对应。
 
 响应头：
 
@@ -626,7 +613,7 @@
 
 ### 失败响应
 
-任务不存在时返回 `FailedOperation.NoSuchTask`；区间 ID 不属于该任务时返回 `InvalidParameterValue`；任务音频已经清理时返回 `FailedOperation.ArtifactNotFound`；模型执行失败时返回 `FailedOperation.OverlapSeparationPreviewFailed`。
+任务不存在时返回 `FailedOperation.NoSuchTask`；区间 ID 不属于该任务时返回 `InvalidParameterValue`；任务音频不可用时返回 `FailedOperation.ArtifactNotFound`；生成试听失败时返回 `FailedOperation.OverlapSeparationPreviewFailed`。
 
 ---
 
@@ -644,7 +631,7 @@
 ### 成功响应
 - `Format=json`：返回 `application/json; charset=utf-8`，内容为任务结果 JSON。
 - `Format=txt`：返回 `text/plain; charset=utf-8`，内容为按行拼接的 `FinalSentence`。
-- `Format=rttm`：返回 `text/plain; charset=utf-8`，内容为离线说话人分离 RTTM；任务需要已生成 `SpeakerRttm` 调试产物。
+- `Format=rttm`：返回 `text/plain; charset=utf-8`，内容为离线说话人分离 RTTM；该格式不可用时返回错误。
 
 ---
 
@@ -768,7 +755,7 @@
 | `[].StartMs` | int | 原音频中重叠区间开始时间（毫秒） |
 | `[].EndMs` | int | 原音频中重叠区间结束时间（毫秒） |
 | `[].OverlapDurationMs` | int | 区间内实际检测到恰好两位说话人同时活动的累计时长（毫秒） |
-| `[].SpeakerIds` | int[] | segmentation 给出的候选任务内临时说话人 ID |
+| `[].SpeakerIds` | int[] | 候选任务内临时说话人 ID |
 
 ### 回调示例（成功，解码后可读）
 ```
@@ -817,50 +804,16 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 
 ## 注册声纹识别
 
-`POST /api/asr/create_task` 和 `POST /api/asr/create_task_upload` 固定执行说话人分离和注册声纹识别，不提供独立启停开关。`GroupIds` 和 `SpeakerProfileIds` 只限定候选范围。服务端复用说话人聚类阶段的 CAM++ embedding，为每个临时说话人生成去除异常窗口后的稳健质心；有效窗口少于 2 个或有效语音不足 2 秒时保持 `unknown`，其余使用与实时识别相同的阈值和候选差值策略。声纹 Profile 注册、管理和质量要求详见 [声纹注册与识别 API](speaker_profiles_http.md)。
+`POST /api/asr/create_task` 和 `POST /api/asr/create_task_upload` 会执行说话人分离和注册声纹匹配。`GroupIds` 和 `SpeakerProfileIds` 用于限定候选范围；未满足匹配条件的临时说话人返回 `SpeakerMatchStatus=unknown`。声纹 Profile 注册和管理详见 [声纹注册与识别 API](speaker_profiles_http.md)。
 
 ---
 
-## 任务超时
+## 进度语义
 
-离线任务默认不设置固定总耗时上限，避免几小时音频在正常处理时被固定 10 分钟窗口截断。
-
-相关配置：
-- `offline.task_timeout_ms=0`：硬总超时，`0` 表示关闭；设置为正数时，任务总等待时间超过该毫秒数会失败
-- `offline.task_idle_timeout_ms=600000`：空闲超时；如果超过该毫秒数没有收到识别事件、完成事件或错误事件，任务会失败
-
-说明：
-- `task_status` 会返回百分比进度。任务排队时为 `0`，开始执行后进入准备、VAD、切片、ASR、说话人聚类、结果组装等阶段，成功后为 `100`。
-- ASR 阶段按已完成片段数更新，长音频可以通过轮询看到 `ProgressPercent`、`ProgressCurrent` 和 `ProgressTotal` 持续变化。
-- 百分比是服务端阶段权重估算，不代表严格的剩余耗时；不同音频的 VAD、ASR、说话人聚类耗时比例会有差异。
-- 常见 `ProgressStage`：`queued`、`running`、`preparing_audio`、`detecting_speech`、`segmenting_audio`、`transcribing`、`diarizing_speakers`、`assembling_result`、`succeeded`、`failed`、`canceled`。
-- 内部会用转写事件作为活跃信号；只要持续有片段结果或其他服务事件返回，任务不会因为空闲超时失败
-
----
-
-## 任务保留与清理
-
-离线任务服务会定期清理已结束的 SQLite 任务记录，避免数据库和受管控工作目录持续增长。
-
-默认规则：
-- 识别成功且回调成功（或未配置回调）的记录保留 **7 天**
-- 识别失败的记录保留 **60 天**
-- 识别成功但回调最终失败的记录按异常记录处理，保留 **60 天**
-
-相关配置：
-- `offline.success_retention_days=7`
-- `offline.failed_retention_days=60`
-- `offline.cleanup_interval_ms=86400000`
-
-清理范围：
-- 删除 SQLite 中已过期的 `offline_tasks` 记录
-- 同步删除服务托管的本地音频文件：
-  - `offline.work_dir/task_<task_id>.wav`
-  - `offline.work_dir/uploads/*`
-
-说明：
-- `callback_status=pending` 的任务不会被清理，直到回调进入成功或失败终态
-- 对于通过 `SourceType=1` 传入的任意外部本地路径，服务不会在清理时盲删原文件；只删除 `offline.work_dir/uploads/` 下由服务保存的上传副本
+- `task_status` 会返回百分比进度；排队时为 `0`，成功后为 `100`。
+- `ProgressCurrent` 和 `ProgressTotal` 表示当前阶段的完成量。
+- `ProgressPercent` 是阶段进度估算，不代表严格的剩余耗时。
+- `ProgressStage` 可能为：`queued`、`running`、`preparing_audio`、`detecting_speech`、`segmenting_audio`、`transcribing`、`diarizing_speakers`、`assembling_result`、`succeeded`、`failed`、`canceled`。
 
 ---
 
@@ -876,61 +829,4 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 | `FailedOperation.NoSuchTask` | 任务不存在 |
 | `FailedOperation.NoSuchSpeakerProfile` | 声纹 Profile 不存在 |
 | `FailedOperation.SpeakerEnrollFailed` | 声纹注册失败 |
-| `InternalError.FailAccessDatabase` | 数据库访问失败 |
-
----
-
-## 实现评估
-
-## 情绪分析补充说明
-
-- 情绪分析已作为**闭段后的附加能力**接入
-- 第一版建议只给每个片段补充：
-  - `Emotion`
-  - `EmotionScore`
-- 不建议第一版做实时连续情绪流
-- 若情绪分析尚未启用，上述字段可缺省或置空
-
-### 结论
-这套异步 HTTP 接口是可行的，而且适合：
-
-- 长音频文件转写
-- 批量录音处理
-- 不需要持续 WebSocket 连接的后端集成
-- 需要轮询或回调获取最终结果的业务系统
-
-如果现在就做，我建议：
-
-1. 先保留这份文档里的“创建任务 / 查状态 / 回调”三段接口。
-2. 第一版先实现轮询能力，回调作为可选增强。
-3. 内部用独立任务队列，不直接把 HTTP 请求线程绑到模型推理线程上。
-
-### 和现有实时服务的关系
-当前项目已经有：
-
-- `VAD`
-- `streaming_asr`
-- `offline_asr`
-- `speaker_refine`
-- worker pool
-
-但当前主流程是围绕实时 `Session` 和 WebSocket 组织的。
-
-所以离线异步 HTTP 不建议直接复用整个 `VoiceService` 作为黑盒，而建议复用：
-
-- 模型 engine 层
-- `offline_asr` worker pool
-- speaker refine 相关逻辑
-- 结果结构和 `ResultDetail` 映射逻辑
-
-更准确地说：
-
-- **可直接复用**：引擎配置、模型加载、离线 ASR、speaker refine
-- **最好不要直接复用**：WebSocket 会话状态机、实时 streaming draft 流程
-
-原因很简单：
-
-- 离线任务不需要长连接
-- 不需要 `streaming partial`
-- 不需要实时 revision 回写
-- 一次任务通常只关心最终稳定结果
+| `InternalError.FailAccessDatabase` | 服务暂时不可用 |
