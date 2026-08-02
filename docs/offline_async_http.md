@@ -827,6 +827,7 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 | `FailedOperation.ErrorRecognize` | 识别处理失败 |
 | `FailedOperation.LicenseUnauthorized` | 授权未加载、已过期或无有效路数，拒绝创建新的离线任务 |
 | `FailedOperation.NoSuchTask` | 任务不存在 |
+| `FailedOperation.TaskNotFinished` | 任务尚未完成，结果不可用 |
 | `FailedOperation.NoSuchSpeakerProfile` | 声纹 Profile 不存在 |
 | `FailedOperation.SpeakerEnrollFailed` | 声纹注册失败 |
 | `InternalError.FailAccessDatabase` | 服务暂时不可用 |
