@@ -1,6 +1,5 @@
 {
   "name": "yuyi-asr-console",
-  "version": "1.6.0",
   "private": true,
   "type": "module",
   "scripts": {
