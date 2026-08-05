@@ -49,6 +49,7 @@
   "vad_threshold": 0.25,
   "vad_min_silence_duration_ms": 500,
   "enable_speaker": true,
+  "enable_align": true,
   "speaker_num": null,
   "group_ids": ["default"],
   "speaker_profile_ids": [],
@@ -72,6 +73,7 @@
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时服务端自动执行注册声纹识别 |
+| `enable_align` | bool | 否 | `true` | 是否生成词级时间戳；`false` 时跳过强制对齐（节省约一半 CPU 开销，词级 `words` 不再返回）。最终生效还受服务端 `--no-align` 限制 |
 | `speaker_num` | int/null | 否 | 空 | 指定说话人数；为空使用自动估计 |
 | `group_ids` | string/array/null | 否 | `default` | 限定本次会话可匹配的声纹组 |
 | `speaker_profile_ids` | string/array/null | 否 | 空 | 限定本次会话可匹配的注册人员；为空匹配指定组内全部启用声纹 |
@@ -96,6 +98,7 @@
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时自动执行注册声纹识别 |
+| `enable_align` | bool | 否 | `true` | 是否生成词级时间戳（同新式握手字段） |
 | `speaker_num` | int | 否 | 空 | 指定说话人数 |
 | `group_ids` | string | 否 | `default` | 限定本次会话可匹配的声纹组 |
 | `speaker_profile_ids` | string | 否 | 空 | 限定本次会话可匹配的注册人员 |
@@ -267,6 +270,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - `source=speaker_refine`：说话人字段修正。
 - `source=emotion_refine`：情绪字段补充或修正。
 - `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（离线精修、说话人回填仍可能到来）。
+- 词级时间戳（`words` 字段）在闭段文本（`is_final=true`）之后异步补发：文本先返回，对齐完成后同一 `segment_id` 以更高 `revision` 回带 `words`，客户端不应假设两者同时到达。
 - `segment_deleted=true`：该片段最终文本被后处理过滤为空（例如语气词过滤后无有效内容）；客户端若已展示该 `segment_id`，应删除/隐藏；如同时存在 `supersedes_segment_id`，还应删除/隐藏被替代的父片段。
 
 尚无情绪结果时，`emotion` 和 `emotion_score` 可以为 `null`，`emotion_state` 为 `pending`；结果稳定后 `emotion_state` 为 `stable`。
