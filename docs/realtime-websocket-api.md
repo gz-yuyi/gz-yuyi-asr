@@ -453,6 +453,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `3003` | `SPEAKER_REFINE_ERROR` | 说话人回写失败 |
 | `4001` | `SESSION_ERROR` | 会话状态错误（如缺失或非法的 `StartSession`） |
 | `4002` | `INVALID_CONTROL_COMMAND` | 非法控制指令 |
+| `4030` | `LICENSE_UNAUTHORIZED` | 未授权：license 缺失/无效/过期，实时会话被拒绝（握手后立即返回 `ErrorResponse` 并关闭连接） |
 | `5000` | `INTERNAL_SERVER_ERROR` | 服务端内部异常 |
 
 ## 9. 最小交互示例
