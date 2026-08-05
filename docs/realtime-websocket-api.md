@@ -271,6 +271,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - `source=emotion_refine`：情绪字段补充或修正。
 - `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（离线精修、说话人回填仍可能到来）。
 - 词级时间戳（`words` 字段）在闭段文本（`is_final=true`）之后异步补发：文本先返回，对齐完成后同一 `segment_id` 以更高 `revision` 回带 `words`，客户端不应假设两者同时到达。
+- 流式草稿（`is_final=false`）由增量滑动窗口解码产生，仅作展示用途：文本可能滞后于音频最多约 2 秒，且后续草稿之间可能发生局部修正（回退/改写），最终以 `is_final=true` 的文本为准。
 - `segment_deleted=true`：该片段最终文本被后处理过滤为空（例如语气词过滤后无有效内容）；客户端若已展示该 `segment_id`，应删除/隐藏；如同时存在 `supersedes_segment_id`，还应删除/隐藏被替代的父片段。
 
 尚无情绪结果时，`emotion` 和 `emotion_score` 可以为 `null`，`emotion_state` 为 `pending`；结果稳定后 `emotion_state` 为 `stable`。
