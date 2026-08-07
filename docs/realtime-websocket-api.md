@@ -271,6 +271,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - `source=emotion_refine`：情绪字段补充或修正。
 - `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（词级时间戳、离线精修、说话人回填仍可能到来）。
 - 启用 `enable_align` 时，词级时间戳可能在闭段文本之后以同一 `segment_id` 的更高 `revision` 单独回带；客户端不应假设 `words` 与初始 final 同时到达。
+- 流式草稿（`is_final=false`）仅作展示用途，随着更多音频到达可能发生局部回退或改写；客户端应按 `segment_id + revision` 整段替换，并以 `is_final=true` 的文本为准。该语义不依赖服务端采用哪种推理后端。
 - `segment_deleted=true`：该片段最终文本被后处理过滤为空（例如语气词过滤后无有效内容）；客户端若已展示该 `segment_id`，应删除/隐藏；如同时存在 `supersedes_segment_id`，还应删除/隐藏被替代的父片段。
 
 尚无情绪结果时，`emotion` 和 `emotion_score` 可以为 `null`，`emotion_state` 为 `pending`；结果稳定后 `emotion_state` 为 `stable`。
