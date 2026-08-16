@@ -67,7 +67,7 @@
 | `audio_encoding` | string | 否 | `pcm_s16le` | 实时音频编码：`pcm_s16le / wav / mp3 / aac / m4a / opus` |
 | `sample_rate` | int | 否 | `16000` | 采样率；`pcm_s16le` 时必须为 `16000` |
 | `hotword_id` | string/null | 否 | `default` | 热词表 ID |
-| `context` | string/null | 否 | 空 | ASR 上下文提示 |
+| `context` | string/null | 否 | 空 | 会话级 ASR 背景提示；与服务端自动滚动前文组合使用 |
 | `language` | string/null | 否 | 未设置 | 输出语种限制（单语种），如 `zh`、`en`、`ja`、`ko`；传入时替换默认中英白名单 |
 | `allowed_output_languages` | string/array/null | 否 | `["zh","en"]` | 输出语种白名单（多语种），如 `"zh,en"` 或 `["zh","en"]`；中文方言如 `Cantonese/yue` 归入 `zh` |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
@@ -82,6 +82,13 @@
 | `profanity_filter_mode` | int | 否 | `0` | 脏词过滤模式：`0/1/2` |
 
 注册声纹匹配随 `enable_speaker` 启用或关闭。旧客户端传入的 `enable_speaker_recognition` 会被忽略。
+
+实时服务默认自动保存最近 5 个已闭段最终文本（最多 160 个 Unicode 字符），并仅在当前 VAD 语音段不超过 1.2 秒时，把这些前文作为 Qwen3-ASR 的系统上下文。它用于消解短句中的同音词，不会重复编码音频，也不会使用 `Partial`、词时间戳或说话人修订作为前文。客户端 `context` 是可选的固定背景，两者可同时生效。部署端可用以下环境变量调整或关闭：
+
+- `YUYI_ASR_REALTIME_ROLLING_CONTEXT=0/1`
+- `YUYI_ASR_REALTIME_ROLLING_CONTEXT_UTTERANCES`（默认 `5`）
+- `YUYI_ASR_REALTIME_ROLLING_CONTEXT_CHARS`（默认 `160`）
+- `YUYI_ASR_REALTIME_ROLLING_CONTEXT_MAX_UTTERANCE_SECONDS`（默认 `1.2`；`0` 表示所有段）
 
 服务端解析成功后返回 `SessionStarted`（`protocol_version=2`），其中回显实际生效的配置。若 `StartSession` 非法，返回 `ErrorResponse(error_code=SESSION_ERROR)` 并关闭连接。
 
