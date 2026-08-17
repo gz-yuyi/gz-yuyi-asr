@@ -6,6 +6,7 @@
     "dev": "vitepress dev docs --host 0.0.0.0",
     "dev:console": "vite --host 0.0.0.0",
     "dev:docs": "vitepress dev docs --host 0.0.0.0",
+    "test": "node scripts/test-mic-worklet.js",
     "build": "npm run build:console && npm run build:docs && node scripts/prepare-pages.js",
     "build:console": "vite build",
     "build:docs": "vitepress build docs",

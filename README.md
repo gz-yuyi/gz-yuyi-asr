@@ -12,9 +12,12 @@ Online console: https://gz-yuyi.github.io/gz-yuyi-asr/
 npm install
 npm run dev          # documentation site
 npm run dev:console  # test console
+npm test             # microphone AudioWorklet buffering/gap/flush tests
 npm run build        # documentation + /console/ GitHub Pages payload
 ```
 
 Console dev server entry: `http://localhost:5173/test-console.html`.
+
+The realtime microphone console captures with `AudioWorklet`, requests browser echo cancellation/noise suppression/automatic gain control off, logs capture-clock drift and track state, and downloads the exact 16 kHz PCM sent through WebSocket. `ScriptProcessor` remains only as a compatibility fallback.
 
 `npm run build` emits `dist-pages/` for GitHub Pages. The docs are served from `/`, and the standalone console is served from `/console/`.

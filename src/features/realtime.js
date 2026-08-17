@@ -1,6 +1,7 @@
 import { $, qsa } from '../core/dom.js';
 import { persistEndpointSettings } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
+import { MIC_CAPTURE_WORKLET_SOURCE } from '../core/mic-capture-worklet.js';
 import { esc, parseListInput, pretty, safeParse } from '../core/format.js';
 import { toast } from '../core/toast.js';
 
@@ -19,16 +20,39 @@ const realtime = {
   previewSource: null,
   previewCtx: null,
   micStream: null,
+  micTrack: null,
   micAudioCtx: null,
+  micSource: null,
+  micCaptureInput: null,
+  micFilters: [],
   micProcessor: null,
+  micSilentGain: null,
+  micCaptureKind: '',
+  micResampleToPcm16: null,
   micRecording: false,
-  micChunks: [],
+  micStopping: false,
+  micStopPromise: null,
+  // Exact PCM16 chunks accepted by WebSocket.send(). The downloadable WAV is
+  // built from these bytes, not from pre-resample WebAudio input.
+  micPcmChunks: [],
   micSampleRate: 16000,
+  micSentSamples: 0,
+  micCaptureFrames: 0,
+  micCaptureGapFrames: 0,
+  micClockStartedAt: 0,
+  micLastClockLogAt: 0,
+  micBackpressureWarned: false,
+  micFlushResolve: null,
   micDownloadUrl: null,
   micDownloadName: '',
   micStartTime: 0,
   micTimer: null,
 };
+
+const MIC_TARGET_SAMPLE_RATE = 16000;
+const MIC_DIAGNOSTIC_INTERVAL_MS = 10000;
+const MIC_WORKLET_FLUSH_TIMEOUT_MS = 500;
+const MIC_AUDIO_RESUME_TIMEOUT_MS = 1000;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -292,9 +316,9 @@ function createStreamingPcm16Resampler(sourceRate, targetRate = 16000) {
   };
 }
 
-function concatFloat32Chunks(chunks) {
+function concatInt16Chunks(chunks) {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const output = new Float32Array(total);
+  const output = new Int16Array(total);
   let offset = 0;
   for (const chunk of chunks) {
     output.set(chunk, offset);
@@ -334,6 +358,245 @@ function requireMediaDevices() {
     throw new Error('当前环境不支持麦克风录音，请使用 HTTPS、localhost 或 127.0.0.1 打开');
   }
   return navigator.mediaDevices;
+}
+
+function buildMicrophoneConstraints() {
+  // Unsupported constrainable properties are ignored by getUserMedia. Send all
+  // three explicitly so a browser cannot silently keep its platform default.
+  // ASR should receive the least-processed microphone signal: browser DSP can
+  // adapt after a long silence and smear short initial consonants. Meeting
+  // products that play remote audio through speakers should add an explicit
+  // echo-cancel mode rather than enabling it for every recording.
+  return {
+    audio: {
+      channelCount: { ideal: 1 },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    },
+  };
+}
+
+function visibleMicrophoneSettings(track) {
+  const settings = track?.getSettings?.() || {};
+  const keys = [
+    'sampleRate',
+    'channelCount',
+    'echoCancellation',
+    'noiseSuppression',
+    'autoGainControl',
+    'latency',
+  ];
+  return Object.fromEntries(keys.filter(key => settings[key] != null).map(key => [key, settings[key]]));
+}
+
+function microphoneClockSummary() {
+  const wallSeconds = realtime.micClockStartedAt > 0
+    ? (performance.now() - realtime.micClockStartedAt) / 1000
+    : 0;
+  const captureSeconds = realtime.micSampleRate > 0
+    ? realtime.micCaptureFrames / realtime.micSampleRate
+    : 0;
+  const sentSeconds = realtime.micSentSamples / MIC_TARGET_SAMPLE_RATE;
+  return {
+    wallSeconds,
+    captureSeconds,
+    sentSeconds,
+    driftSeconds: wallSeconds - captureSeconds,
+  };
+}
+
+function maybeLogMicrophoneClock(force = false) {
+  if (!realtime.micClockStartedAt) return;
+  const now = performance.now();
+  if (!force && now - realtime.micLastClockLogAt < MIC_DIAGNOSTIC_INTERVAL_MS) return;
+  realtime.micLastClockLogAt = now;
+  const clock = microphoneClockSummary();
+  const gapMs = realtime.micSampleRate > 0
+    ? realtime.micCaptureGapFrames / realtime.micSampleRate * 1000
+    : 0;
+  const suspicious = Math.abs(clock.driftSeconds) > 0.5 || gapMs > 20;
+  appendLog(
+    $('realtimeLog'),
+    `麦克风时钟 wall=${clock.wallSeconds.toFixed(2)}s capture=${clock.captureSeconds.toFixed(2)}s sent=${clock.sentSeconds.toFixed(2)}s drift=${clock.driftSeconds.toFixed(3)}s render_gap=${gapMs.toFixed(1)}ms`,
+    suspicious ? 'log-err' : 'log-info',
+    'info',
+  );
+}
+
+function sendMicrophoneSamples(input, ws, gapFrames = 0) {
+  if (!realtime.micRecording && !realtime.micStopping) return;
+  realtime.micCaptureFrames += input.length;
+  realtime.micCaptureGapFrames += Math.max(0, Number(gapFrames) || 0);
+
+  const int16 = realtime.micResampleToPcm16?.(input) || new Int16Array(0);
+  if (int16.length === 0 || ws.readyState !== WebSocket.OPEN) {
+    maybeLogMicrophoneClock();
+    return;
+  }
+
+  try {
+    // WebSocket.send() copies the buffer. Preserve the exact accepted PCM in a
+    // separate Int16Array so the diagnostic WAV is byte-for-byte equivalent to
+    // the audio stream (apart from WebSocket framing).
+    ws.send(int16.buffer);
+    realtime.micPcmChunks.push(int16.slice());
+    realtime.micSentSamples += int16.length;
+    realtime.chunksSent++;
+    updateStats();
+    drawLiveChunk($('liveWaveCanvas'), int16.buffer);
+
+    if (ws.bufferedAmount > 1024 * 1024 && !realtime.micBackpressureWarned) {
+      realtime.micBackpressureWarned = true;
+      appendLog(
+        $('realtimeLog'),
+        `WebSocket 待发送音频已积压 ${(ws.bufferedAmount / 1024).toFixed(0)} KiB，网络可能增加实时延迟`,
+        'log-err',
+        'info',
+      );
+    } else if (ws.bufferedAmount < 256 * 1024) {
+      realtime.micBackpressureWarned = false;
+    }
+  } catch (err) {
+    appendLog($('realtimeLog'), `麦克风 PCM 发送失败: ${err.message}`, 'log-err', 'error');
+  }
+  maybeLogMicrophoneClock();
+}
+
+async function createAudioWorkletCapture(audioCtx, ws) {
+  if (!audioCtx.audioWorklet || typeof window.AudioWorkletNode !== 'function') {
+    throw new Error('AudioWorklet unavailable');
+  }
+  const moduleUrl = URL.createObjectURL(
+    new Blob([MIC_CAPTURE_WORKLET_SOURCE], { type: 'application/javascript' }),
+  );
+  try {
+    await audioCtx.audioWorklet.addModule(moduleUrl);
+  } finally {
+    URL.revokeObjectURL(moduleUrl);
+  }
+
+  const node = new AudioWorkletNode(audioCtx, 'yuyi-pcm-capture', {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    outputChannelCount: [1],
+    channelCount: 1,
+    channelCountMode: 'explicit',
+    channelInterpretation: 'speakers',
+    processorOptions: {
+      chunkFrames: Math.max(128, Math.round(audioCtx.sampleRate / 10)),
+    },
+  });
+  node.port.onmessage = event => {
+    const data = event.data || {};
+    if (data.type === 'samples' && data.samples) {
+      sendMicrophoneSamples(new Float32Array(data.samples), ws, data.gapFrames);
+    } else if (data.type === 'flushed' && realtime.micFlushResolve) {
+      const resolve = realtime.micFlushResolve;
+      realtime.micFlushResolve = null;
+      resolve(true);
+    }
+  };
+  return node;
+}
+
+function createScriptProcessorCapture(audioCtx, ws) {
+  const node = audioCtx.createScriptProcessor(2048, 1, 1);
+  node.onaudioprocess = event => {
+    if (!realtime.micRecording && !realtime.micStopping) return;
+    sendMicrophoneSamples(event.inputBuffer.getChannelData(0), ws);
+  };
+  return node;
+}
+
+async function connectMicrophoneGraph(audioCtx, stream, ws) {
+  const source = audioCtx.createMediaStreamSource(stream);
+  const silentGain = audioCtx.createGain();
+  silentGain.gain.value = 0;
+  silentGain.connect(audioCtx.destination);
+
+  let processor;
+  try {
+    processor = await createAudioWorkletCapture(audioCtx, ws);
+    realtime.micCaptureKind = 'AudioWorklet';
+  } catch (err) {
+    processor = createScriptProcessorCapture(audioCtx, ws);
+    realtime.micCaptureKind = 'ScriptProcessor fallback';
+    appendLog(
+      $('realtimeLog'),
+      `AudioWorklet 初始化失败，降级到主线程采集: ${err.message}`,
+      'log-err',
+      'info',
+    );
+  }
+
+  let captureInput = source;
+  const filters = [];
+  if (audioCtx.sampleRate > MIC_TARGET_SAMPLE_RATE) {
+    // The fallback streaming resampler interpolates output positions. Two
+    // low-pass biquads suppress frequencies above the 16k Nyquist limit first,
+    // avoiding aliasing when a browser ignores the requested 16k context and
+    // runs at its native 44.1/48k rate.
+    for (let i = 0; i < 2; i++) {
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = MIC_TARGET_SAMPLE_RATE * 0.45;
+      filter.Q.value = 0.707;
+      captureInput.connect(filter);
+      captureInput = filter;
+      filters.push(filter);
+    }
+    appendLog($('realtimeLog'), `启用 ${filters.length} 级低通抗混叠后降采样`, 'log-info', 'info');
+  }
+
+  captureInput.connect(processor);
+  processor.connect(silentGain);
+  realtime.micSource = source;
+  realtime.micCaptureInput = captureInput;
+  realtime.micFilters = filters;
+  realtime.micProcessor = processor;
+  realtime.micSilentGain = silentGain;
+}
+
+function flushMicrophoneWorklet() {
+  if (realtime.micCaptureKind !== 'AudioWorklet' || !realtime.micProcessor?.port) {
+    return Promise.resolve(false);
+  }
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      if (realtime.micFlushResolve === finish) realtime.micFlushResolve = null;
+      resolve(value);
+    };
+    realtime.micFlushResolve = finish;
+    realtime.micProcessor.port.postMessage({ type: 'flush' });
+    setTimeout(() => finish(false), MIC_WORKLET_FLUSH_TIMEOUT_MS);
+  });
+}
+
+async function resumeMicrophoneAudio(reason) {
+  const audioCtx = realtime.micAudioCtx;
+  if (!audioCtx || audioCtx.state === 'running' || audioCtx.state === 'closed') return;
+  try {
+    let timedOut = false;
+    await Promise.race([
+      audioCtx.resume(),
+      new Promise(resolve => setTimeout(() => {
+        timedOut = true;
+        resolve();
+      }, MIC_AUDIO_RESUME_TIMEOUT_MS)),
+    ]);
+    appendLog(
+      $('realtimeLog'),
+      `AudioContext resume (${reason}): ${audioCtx.state}${timedOut ? ' timeout' : ''}`,
+      audioCtx.state === 'running' ? 'log-info' : 'log-err',
+      'info',
+    );
+  } catch (err) {
+    appendLog($('realtimeLog'), `AudioContext resume 失败 (${reason}): ${err.message}`, 'log-err', 'error');
+  }
 }
 
 async function loadRealtimeFile(file) {
@@ -769,7 +1032,9 @@ function setupWsHandlers(ws) {
     const ok = event.code === 1000;
     setWsStatus(`已断开 (${event.code})`, ok ? 'warn' : 'error');
     appendLog($('realtimeLog'), `连接关闭 code=${event.code} reason=${event.reason || ''}`, ok ? 'log-info' : 'log-err', ok ? 'info' : 'error');
-    if (realtime.micRecording) stopMic();
+    if (realtime.micRecording || realtime.micStream || realtime.micAudioCtx) {
+      void stopMic();
+    }
   };
 }
 
@@ -850,17 +1115,15 @@ function resetRealtimeMicDownload() {
   realtime.micDownloadUrl = null;
   realtime.micDownloadName = '';
   $('micDownloadBtn').classList.add('hidden');
-  $('micDownloadHint').textContent = '录制结束后可下载最近一次录音';
+  $('micDownloadHint').textContent = '原始采集（EC/NS/AGC 关闭）；结束后可下载实际发送的 16k PCM';
 }
 
-function prepareRealtimeMicDownload(chunks, sampleRate) {
+function prepareRealtimeMicDownload(chunks, sampleRate = MIC_TARGET_SAMPLE_RATE) {
   if (!chunks.length) {
-    $('micDownloadHint').textContent = '本次录音没有捕获到可下载的音频';
+    $('micDownloadHint').textContent = '本次会话没有成功发送可下载的音频';
     return;
   }
-  const samples = concatFloat32Chunks(chunks);
-  const int16 = new Int16Array(samples.length);
-  for (let i = 0; i < samples.length; i++) int16[i] = floatToPcm16Sample(samples[i]);
+  const int16 = concatInt16Chunks(chunks);
   const wav = encodeWav(int16, sampleRate);
   const blob = new Blob([wav], { type: 'audio/wav' });
   const durationSec = sampleRate > 0 ? int16.length / sampleRate : 0;
@@ -869,110 +1132,203 @@ function prepareRealtimeMicDownload(chunks, sampleRate) {
   realtime.micDownloadUrl = URL.createObjectURL(blob);
   realtime.micDownloadName = filename;
   $('micDownloadBtn').classList.remove('hidden');
-  $('micDownloadHint').textContent = `最近录音已就绪：${filename} · ${durationSec.toFixed(1)}s`;
+  $('micDownloadHint').textContent = `实际发送 PCM 已就绪：${filename} · ${durationSec.toFixed(1)}s · ${sampleRate}Hz`;
 }
 
-function stopMic({ finish = false } = {}) {
-  const chunks = realtime.micChunks.slice();
-  const sampleRate = realtime.micSampleRate || 16000;
-  realtime.micRecording = false;
-  realtime.micChunks = [];
-  if (realtime.micTimer) clearInterval(realtime.micTimer);
-  realtime.micTimer = null;
-  if (realtime.micProcessor) realtime.micProcessor.disconnect();
-  realtime.micProcessor = null;
-  if (realtime.micStream) realtime.micStream.getTracks().forEach(track => track.stop());
-  realtime.micStream = null;
-  if (realtime.micAudioCtx) realtime.micAudioCtx.close();
-  realtime.micAudioCtx = null;
-  setMicUI(false);
-  appendLog($('realtimeLog'), '麦克风录制已停止', 'log-info', 'info');
-  // Stop audio capture before flushing the stream, so no more PCM frames race
-  // after FinishSession. Without this final control frame, short microphone
-  // recordings can show "audio sent" but never produce a final transcript
-  // because the server is still waiting for either trailing silence or finish.
-  if (finish && realtime.ws?.readyState === WebSocket.OPEN) {
-    sendControl('FinishSession', '录制结束，冲刷尾段');
-  }
-  toast('录制已停止', 'info');
+async function stopMic({ finish = false } = {}) {
+  if (realtime.micStopPromise) return realtime.micStopPromise;
+  realtime.micStopPromise = (async () => {
+    const hadCapture = realtime.micRecording || realtime.micStream || realtime.micAudioCtx;
+    realtime.micStopping = true;
+    if (realtime.micTimer) clearInterval(realtime.micTimer);
+    realtime.micTimer = null;
+
+    // Stop new input first, then drain the AudioWorklet's final sub-100ms
+    // block. Keeping the worklet connected downstream lets it service the
+    // flush message, while disconnecting the source prevents a post-flush race.
+    try { realtime.micCaptureInput?.disconnect(realtime.micProcessor); } catch {}
+    const flushed = await flushMicrophoneWorklet();
+    if (realtime.micCaptureKind === 'AudioWorklet' && !flushed) {
+      appendLog($('realtimeLog'), 'AudioWorklet 尾块冲刷超时，末尾可能缺少不足 100ms 音频', 'log-err', 'info');
+    }
+    realtime.micRecording = false;
+    maybeLogMicrophoneClock(true);
+    const chunks = realtime.micPcmChunks.slice();
+
+    try { realtime.micSource?.disconnect(); } catch {}
+    for (const filter of realtime.micFilters) {
+      try { filter.disconnect(); } catch {}
+    }
+    try { realtime.micProcessor?.disconnect(); } catch {}
+    try { realtime.micProcessor?.port?.close(); } catch {}
+    try { realtime.micSilentGain?.disconnect(); } catch {}
+    realtime.micSource = null;
+    realtime.micCaptureInput = null;
+    realtime.micFilters = [];
+    realtime.micProcessor = null;
+    realtime.micSilentGain = null;
+    realtime.micResampleToPcm16 = null;
+
+    if (realtime.micStream) realtime.micStream.getTracks().forEach(track => track.stop());
+    realtime.micTrack = null;
+    realtime.micStream = null;
+    if (realtime.micAudioCtx && realtime.micAudioCtx.state !== 'closed') {
+      try { await realtime.micAudioCtx.close(); } catch {}
+    }
+    realtime.micAudioCtx = null;
+    realtime.micStopping = false;
+    setMicUI(false);
+
+    // Stop capture and drain its final PCM before asking the server to commit
+    // the trailing VAD utterance, so no audio frame races after FinishSession.
+    if (finish && realtime.ws?.readyState === WebSocket.OPEN) {
+      sendControl('FinishSession', '录制结束，冲刷尾段');
+    }
+    if (hadCapture) {
+      appendLog($('realtimeLog'), `麦克风录制已停止，采集=${realtime.micCaptureKind || '-'}，发送=${(realtime.micSentSamples / MIC_TARGET_SAMPLE_RATE).toFixed(2)}s`, 'log-info', 'info');
+      toast('录制已停止', 'info');
+    }
+    try {
+      prepareRealtimeMicDownload(chunks, MIC_TARGET_SAMPLE_RATE);
+    } catch (err) {
+      appendLog($('realtimeLog'), `生成下载音频失败: ${err.message}`, 'log-err', 'error');
+    }
+    realtime.micPcmChunks = [];
+  })();
+
   try {
-    prepareRealtimeMicDownload(chunks, sampleRate);
-  } catch (err) {
-    appendLog($('realtimeLog'), `生成下载音频失败: ${err.message}`, 'log-err', 'error');
+    await realtime.micStopPromise;
+  } finally {
+    realtime.micStopPromise = null;
   }
 }
 
 async function startMic() {
-  if (realtime.micRecording) return;
+  if (realtime.micRecording || realtime.micStopping || realtime.micStopPromise) return;
   $('audioEncoding').value = 'pcm_s16le';
-  $('sampleRate').value = '16000';
+  $('sampleRate').value = String(MIC_TARGET_SAMPLE_RATE);
   clearRealtimeState();
   resetRealtimeMicDownload();
-
-  let stream;
-  try {
-    stream = await requireMediaDevices().getUserMedia({
-      audio: { sampleRate: { ideal: 16000 }, channelCount: 1, echoCancellation: true, noiseSuppression: true },
-    });
-  } catch (err) {
-    toast(`麦克风不可用: ${err.message}`, 'error');
-    appendLog($('realtimeLog'), `麦克风获取失败: ${err.message}`, 'log-err', 'error');
-    return;
-  }
-  realtime.micStream = stream;
+  realtime.micCaptureKind = '';
+  realtime.micPcmChunks = [];
+  realtime.micSentSamples = 0;
+  realtime.micCaptureFrames = 0;
+  realtime.micCaptureGapFrames = 0;
+  realtime.micClockStartedAt = 0;
+  realtime.micLastClockLogAt = 0;
+  realtime.micBackpressureWarned = false;
 
   let url;
   try {
     url = buildWsUrl();
   } catch (err) {
     toast(`WebSocket URL 无效: ${err.message}`, 'error');
-    realtime.micStream.getTracks().forEach(track => track.stop());
-    realtime.micStream = null;
     return;
   }
+
+  let mediaDevices;
+  let audioCtx;
+  try {
+    mediaDevices = requireMediaDevices();
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    try {
+      audioCtx = new AudioCtx({ sampleRate: MIC_TARGET_SAMPLE_RATE, latencyHint: 'interactive' });
+    } catch {
+      audioCtx = new AudioCtx({ latencyHint: 'interactive' });
+    }
+    realtime.micAudioCtx = audioCtx;
+    audioCtx.addEventListener('statechange', () => {
+      appendLog(
+        $('realtimeLog'),
+        `AudioContext state=${audioCtx.state}`,
+        audioCtx.state === 'running' || audioCtx.state === 'closed' ? 'log-info' : 'log-err',
+        'info',
+      );
+    });
+    // This call still runs in the microphone-button user gesture. Creating the
+    // context later in WebSocket.onopen can leave it suspended under autoplay
+    // policies on some browsers.
+    await resumeMicrophoneAudio('mic button');
+
+    const constraints = buildMicrophoneConstraints();
+    appendLog($('realtimeLog'), `请求麦克风原始采集约束 ${JSON.stringify(constraints.audio)}`, 'log-info', 'info');
+    realtime.micStream = await mediaDevices.getUserMedia(constraints);
+    realtime.micTrack = realtime.micStream.getAudioTracks()[0] || null;
+    appendLog(
+      $('realtimeLog'),
+      `麦克风实际设置 ${JSON.stringify(visibleMicrophoneSettings(realtime.micTrack))}`,
+      'log-info',
+      'info',
+    );
+    if (realtime.micTrack) {
+      realtime.micTrack.addEventListener('mute', () => {
+        appendLog($('realtimeLog'), '麦克风 track mute：浏览器暂时没有提供采样', 'log-err', 'info');
+      });
+      realtime.micTrack.addEventListener('unmute', () => {
+        appendLog($('realtimeLog'), '麦克风 track unmute：采样已恢复', 'log-info', 'info');
+      });
+      realtime.micTrack.addEventListener('ended', () => {
+        appendLog($('realtimeLog'), '麦克风 track ended', 'log-err', 'info');
+      });
+    }
+  } catch (err) {
+    toast(`麦克风不可用: ${err.message}`, 'error');
+    appendLog($('realtimeLog'), `麦克风获取失败: ${err.message}`, 'log-err', 'error');
+    if (realtime.micStream) realtime.micStream.getTracks().forEach(track => track.stop());
+    realtime.micStream = null;
+    realtime.micTrack = null;
+    if (audioCtx && audioCtx.state !== 'closed') await audioCtx.close().catch(() => {});
+    realtime.micAudioCtx = null;
+    return;
+  }
+
   appendLog($('realtimeLog'), `连接 ${url}`, 'log-info', 'info');
   setWsStatus('连接中...', 'warn');
   const ws = new WebSocket(url);
   realtime.ws = ws;
   setupWsHandlers(ws);
 
-  ws.onopen = () => {
-    const startPayload = buildStartSessionPayload();
-    ws.send(JSON.stringify(startPayload));
-    appendLog($('realtimeLog'), `>>> StartSession ${JSON.stringify(startPayload)}`, 'log-sent', 'info');
-    setWsStatus('已连接 · 麦克风', 'ok');
-    appendLog($('realtimeLog'), '连接成功，开始麦克风录制', 'log-sent', 'info');
-    toast('麦克风录制中', 'success');
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AudioCtx({ sampleRate: 16000 });
-    realtime.micAudioCtx = audioCtx;
-    realtime.micSampleRate = audioCtx.sampleRate || 16000;
-    realtime.micChunks = [];
-    appendLog($('realtimeLog'), `麦克风实际采样率 ${realtime.micSampleRate}Hz，发送给 WS 的 PCM 固定重采样为 16000Hz`, 'log-info', 'info');
+  ws.onopen = async () => {
+    try {
+      const startPayload = buildStartSessionPayload();
+      ws.send(JSON.stringify(startPayload));
+      appendLog($('realtimeLog'), `>>> StartSession ${JSON.stringify(startPayload)}`, 'log-sent', 'info');
+      setWsStatus('已连接 · 麦克风', 'ok');
 
-    const source = audioCtx.createMediaStreamSource(stream);
-    const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-    realtime.micProcessor = processor;
-    const resampleToPcm16 = createStreamingPcm16Resampler(realtime.micSampleRate, 16000);
-    const liveCanvas = $('liveWaveCanvas');
-    processor.onaudioprocess = event => {
-      if (!realtime.micRecording || ws.readyState !== WebSocket.OPEN) return;
-      const input = event.inputBuffer.getChannelData(0);
-      realtime.micChunks.push(new Float32Array(input));
-      const int16 = resampleToPcm16(input);
-      if (int16.length === 0) return;
-      ws.send(int16.buffer);
-      realtime.chunksSent++;
-      updateStats();
-      drawLiveChunk(liveCanvas, int16.buffer);
-    };
-    source.connect(processor);
-    processor.connect(audioCtx.destination);
-    realtime.micRecording = true;
-    realtime.micStartTime = Date.now();
-    realtime.micTimer = setInterval(updateMicTimer, 500);
-    updateMicTimer();
-    setMicUI(true);
+      realtime.micSampleRate = audioCtx.sampleRate || MIC_TARGET_SAMPLE_RATE;
+      realtime.micPcmChunks = [];
+      realtime.micSentSamples = 0;
+      realtime.micCaptureFrames = 0;
+      realtime.micCaptureGapFrames = 0;
+      realtime.micBackpressureWarned = false;
+      realtime.micResampleToPcm16 = createStreamingPcm16Resampler(
+        realtime.micSampleRate,
+        MIC_TARGET_SAMPLE_RATE,
+      );
+      await connectMicrophoneGraph(audioCtx, realtime.micStream, ws);
+      realtime.micRecording = true;
+      realtime.micClockStartedAt = performance.now();
+      realtime.micLastClockLogAt = realtime.micClockStartedAt;
+      realtime.micStartTime = Date.now();
+      realtime.micTimer = setInterval(updateMicTimer, 500);
+      await resumeMicrophoneAudio('capture graph connected');
+
+      appendLog(
+        $('realtimeLog'),
+        `麦克风采集=${realtime.micCaptureKind}，AudioContext=${realtime.micSampleRate}Hz，WS PCM=${MIC_TARGET_SAMPLE_RATE}Hz；EC/NS/AGC 默认关闭`,
+        'log-info',
+        'info',
+      );
+      appendLog($('realtimeLog'), '连接成功，开始麦克风录制', 'log-sent', 'info');
+      toast('麦克风录制中', 'success');
+      updateMicTimer();
+      setMicUI(true);
+    } catch (err) {
+      appendLog($('realtimeLog'), `麦克风采集初始化失败: ${err.message}`, 'log-err', 'error');
+      toast(`麦克风采集初始化失败: ${err.message}`, 'error');
+      await stopMic();
+      ws.close();
+    }
   };
 }
 
@@ -1016,9 +1372,9 @@ export function registerRealtime() {
   });
   $('connectBtn').addEventListener('click', connectAndSendFile);
   $('connectUrlBtn').addEventListener('click', connectAndSendUrl);
-  $('micBtn').addEventListener('click', startMic);
+  $('micBtn').addEventListener('click', () => { void startMic(); });
   $('micStopBtn').addEventListener('click', () => {
-    stopMic({ finish: true });
+    void stopMic({ finish: true });
   });
   $('micDownloadBtn').addEventListener('click', () => {
     if (!realtime.micDownloadUrl) {
@@ -1037,11 +1393,15 @@ export function registerRealtime() {
     sendControl('Ping');
   });
   $('stopBtn').addEventListener('click', () => {
-    sendControl('FinishSession');
+    if (realtime.micRecording || realtime.micStream) {
+      void stopMic({ finish: true });
+    } else {
+      sendControl('FinishSession');
+    }
   });
   $('closeBtn').addEventListener('click', () => {
-    if (realtime.micRecording) {
-      stopMic({ finish: true });
+    if (realtime.micRecording || realtime.micStream || realtime.micAudioCtx) {
+      void stopMic({ finish: true });
       return;
     }
     realtime.ws?.close();
@@ -1058,6 +1418,24 @@ export function registerRealtime() {
   });
   $('clearRealtimeLogBtn').addEventListener('click', () => { $('realtimeLog').innerHTML = ''; });
   $('syncWsBtn').addEventListener('click', syncWsUrlFromHttp);
+  document.addEventListener('visibilitychange', () => {
+    if (!realtime.micStream) return;
+    appendLog(
+      $('realtimeLog'),
+      `页面 visibility=${document.visibilityState}，AudioContext=${realtime.micAudioCtx?.state || '-'}`,
+      document.visibilityState === 'visible' ? 'log-info' : 'log-err',
+      'info',
+    );
+    if (document.visibilityState === 'visible') void resumeMicrophoneAudio('page visible');
+  });
+  window.addEventListener('focus', () => {
+    if (realtime.micStream) void resumeMicrophoneAudio('window focus');
+  });
+  window.addEventListener('blur', () => {
+    if (realtime.micStream) {
+      appendLog($('realtimeLog'), '浏览器窗口失去焦点，继续由 AudioWorklet 采集', 'log-info', 'info');
+    }
+  });
   $('streamMode').addEventListener('change', () => {
     if ($('streamMode').value === 'decode_pcm') {
       $('audioEncoding').value = 'pcm_s16le';
