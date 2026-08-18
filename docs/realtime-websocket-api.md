@@ -2,7 +2,10 @@
 
 本文档描述语义科技 ASR 服务的实时语音 WebSocket 协议。
 
-协议采用「单事件 + 修订」模型：同一片段的后续文本、说话人或情绪更新统一使用 `TranscriptUpdate`，客户端按 `segment_id` 保留最大 `revision`。
+协议采用「片段修订 + 原子重切段批次」模型：单片段更新使用 `TranscriptUpdate`；一次说话人重切段产生“删除父段 + 新增子段”或“删除子段 + 恢复父段”时，使用一个 `TranscriptUpdateBatch` WebSocket 消息原子交付。客户端仍按 `segment_id` 保留最大 `revision`。
+
+> [!NOTE]
+> `TranscriptUpdateBatch` 不提供兼容开关：结构性说话人重切段固定使用批次事件，普通单片段 revision 仍使用 `TranscriptUpdate`。
 
 ## 1. 地址
 
@@ -13,9 +16,13 @@
 
 ## 2. 协议原则
 
-- 片段闭合后，`segment_id / start_ms / end_ms` 保持稳定。
+- 片段闭合后，`segment_id / start_ms / end_ms` 保持稳定；说话人重切段会删除父段并创建新的子段 ID，不会修改原 ID 的时间范围。
 - 同一 `segment_id` 可以收到更高 `revision` 的修正结果。
 - 客户端只保留同一 `segment_id` 的最大 `revision`。
+- 只影响一个片段的逻辑操作使用单个 `TranscriptUpdate`。
+- 一次结构性说话人重切段必须把同一父子片段族的全部删除、恢复和新增放入同一个 `TranscriptUpdateBatch`；服务端不得再把其中的子更新单独发送。
+- 同一轮全局聚类若重切多个互不相关的父段，每个父子片段族分别形成一个批次，避免长会话产生无界的大消息；普通的单片段 speaker revision 仍使用 `TranscriptUpdate`。
+- 批次只改变传输和提交边界，不改变每个片段的文本、时间、speaker、`segment_id` 或 `revision` 计算结果。
 - v1 与 v2 握手使用相同的下行事件结构，差异仅在握手与控制帧形态。
 
 ## 3. 会话建立与音频
@@ -157,7 +164,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 
 #### `FinishSession` / `stop`
 
-服务端停止接收音频，发送剩余的 `TranscriptUpdate`，最后返回 `SessionCompleted` 并关闭连接。
+服务端停止接收音频，发送剩余的 `TranscriptUpdate` / `TranscriptUpdateBatch`，最后返回 `SessionCompleted` 并关闭连接。
 
 #### `CancelSession`
 
@@ -169,8 +176,9 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 
 1. 会话建立后，客户端持续发送音频帧。
 2. 服务端可以对同一片段发送多次 `TranscriptUpdate`，`revision` 单调递增。
-3. `FinishSession` 后，服务端发送剩余更新和一个 `SessionCompleted`。
-4. `CancelSession` 后，服务端返回 `SessionCompleted(canceled=true)`。
+3. 一次说话人重切段影响一个父子片段族时，服务端在一个 WebSocket 文本消息中发送 `TranscriptUpdateBatch`；批次中的 `updates` 共同构成一次不可拆分的状态变更。
+4. `FinishSession` 后，服务端发送剩余更新和一个 `SessionCompleted`；`SessionCompleted` 必须排在所有批次之后。
+5. `CancelSession` 后，服务端返回 `SessionCompleted(canceled=true)`。
 
 ## 5. 客户端状态管理规则
 
@@ -179,6 +187,16 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - 若新消息的 `revision` 小于等于本地版本，丢弃。
 - 若新消息的 `segment_deleted=true`，删除/隐藏该 `segment_id`；如果带有 `supersedes_segment_id`，也删除/隐藏被替代的父片段。
 - 若 `revision` 更高，则整体替换文本与说话人/情绪状态。
+
+收到 `TranscriptUpdateBatch` 时，客户端必须：
+
+1. 先完整解析并校验整个消息，不得边解析边修改正式状态。
+2. 以 `batch_id` 做幂等去重；同一会话内重复收到相同 `batch_id` 时整批忽略。
+3. 在临时副本或数据库事务中，按 `updates` 数组顺序逐项执行上述 `segment_id + revision` 规则。
+4. 所有子更新均处理成功后一次性提交；任一子更新结构非法时整批不得部分提交。
+5. 批次提交后只触发一次渲染、持久化或下游业务回调，不得为每个子更新分别触发业务副作用。
+
+`atomic=true` 表示客户端不可观察到批次的中间状态，不表示批次共享一个 revision。每个子更新仍有独立的 `segment_id` 和 `revision`。
 
 推荐最小状态结构：
 
@@ -246,7 +264,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 
 ### 7.2 `TranscriptUpdate`
 
-核心事件。同一片段可能多次返回。
+单片段核心事件。同一片段可能多次返回；结构性说话人重切段涉及一个父子片段族时，这些完整的 `TranscriptUpdate` 对象必须嵌入 `TranscriptUpdateBatch.updates`，不得作为多个独立 WebSocket 消息发送。
 
 | 字段名 | 类型 | 说明 |
 |---|---|---|
@@ -286,6 +304,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - 启用 `enable_align` 时，词级时间戳可能在闭段文本之后以同一 `segment_id` 的更高 `revision` 单独回带；客户端不应假设 `words` 与初始 final 同时到达。
 - 流式草稿（`is_final=false`）仅作展示用途，随着更多音频到达可能发生局部回退或改写；客户端应按 `segment_id + revision` 整段替换，并以 `is_final=true` 的文本为准。该语义不依赖服务端采用哪种推理后端。
 - `segment_deleted=true`：该片段最终文本被后处理过滤为空（例如语气词过滤后无有效内容）；客户端若已展示该 `segment_id`，应删除/隐藏；如同时存在 `supersedes_segment_id`，还应删除/隐藏被替代的父片段。
+- 单纯过滤一个片段可以独立发送删除事件；说话人重切段产生的“删除父段 + 新增子段”或“删除子段 + 恢复父段”必须使用 `TranscriptUpdateBatch` 原子发送。
 
 尚无情绪结果时，`emotion` 和 `emotion_score` 可以为 `null`，`emotion_state` 为 `pending`；结果稳定后 `emotion_state` 为 `stable`。
 
@@ -408,7 +427,110 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 }
 ```
 
-### 7.3 `SessionCompleted`
+### 7.3 `TranscriptUpdateBatch`
+
+一个父子片段族发生结构性替换时使用的原子批次事件。第一版仅用于 `source=speaker_refine` 和 `reason=speaker_resegmentation`；服务端把该父段及其子段的全部删除、恢复和新增放在一个 WebSocket 文本消息中。普通的多段 speaker ID 修正不强行合并为一个无限增长的批次。
+
+| 字段名 | 类型 | 说明 |
+|---|---|---|
+| `type` | string | 固定 `TranscriptUpdateBatch` |
+| `batch_id` | string | 会话内唯一且单调生成的批次 ID，用于日志关联和客户端幂等去重 |
+| `source` | string | 第一版固定为 `speaker_refine` |
+| `reason` | string | 第一版固定为 `speaker_resegmentation`（拆分或恢复一个父子片段族） |
+| `atomic` | bool | 固定为 `true`；客户端必须一次性提交整个批次 |
+| `updates` | array | 非空数组；每项都是完整的 `TranscriptUpdate` 对象，继续使用各自的 `segment_id` 和 `revision` |
+
+约束：
+
+- 一个批次必须封装在一个 WebSocket 文本消息内，不能拆成多个消息，也不能把内部 `updates` 再独立发送。
+- 一个批次只包含一个父段及其派生子段；多个互不相关的父段分别发送批次，从而把单帧大小限制在单个 ASR 段的文本和词时间戳规模内。
+- `updates` 使用确定顺序：先删除旧片段，再恢复或新增新片段；客户端仍应以原子事务提交，因此该顺序不会形成可见中间状态。
+- 嵌套 `TranscriptUpdate` 的 `session_id` 必须与批次一致，`source` 必须为 `speaker_refine`。
+- 子段必须设置 `parent_segment_id`；替代父段时设置 `supersedes_segment_id`，客户端不得依赖 `_01/_02` ID 后缀推断父子关系。
+- Diart 最终批次中的有效子段继续返回 `speaker_is_final=true`；Cluster 模式仍省略该字段。
+- `batch_id` 不替代片段 revision。批次重放时按 `batch_id` 整批去重，片段状态冲突时仍以每个 `segment_id` 的最大 `revision` 为准。
+- 将 `updates` 按数组顺序展开后，必须与旧逐条协议产生完全相同的每段内容和 revision；批次封装不得筛选、合并或丢弃任何修正。
+- 服务端在发送批次前已经拥有全部子更新，打包过程不得等待额外模型结果，因此不能额外增加 ASR、Align 或说话人推理延迟。
+
+示例：一个父段按说话人切成两个子段
+
+```json
+{
+  "type": "TranscriptUpdateBatch",
+  "code": 0,
+  "message": "success",
+  "session_id": "sess_8db8f0",
+  "server_time_ms": 1762900006200,
+  "batch_id": "batch_000007",
+  "source": "speaker_refine",
+  "reason": "speaker_resegmentation",
+  "atomic": true,
+  "updates": [
+    {
+      "type": "TranscriptUpdate",
+      "code": 0,
+      "message": "success",
+      "session_id": "sess_8db8f0",
+      "server_time_ms": 1762900006200,
+      "segment_id": "seg_000001",
+      "revision": 5,
+      "source": "speaker_refine",
+      "is_final": true,
+      "text": "你好谢谢",
+      "segment_deleted": true,
+      "start_ms": 1200,
+      "end_ms": 3860,
+      "speaker_id": 0,
+      "speaker_state": "stable",
+      "replace_all_text": true
+    },
+    {
+      "type": "TranscriptUpdate",
+      "code": 0,
+      "message": "success",
+      "session_id": "sess_8db8f0",
+      "server_time_ms": 1762900006200,
+      "segment_id": "seg_000001_01",
+      "revision": 1,
+      "source": "speaker_refine",
+      "is_final": true,
+      "text": "你好",
+      "segment_deleted": false,
+      "supersedes_segment_id": "seg_000001",
+      "parent_segment_id": "seg_000001",
+      "start_ms": 1200,
+      "end_ms": 2480,
+      "speaker_id": 0,
+      "speaker_state": "stable",
+      "replace_all_text": true
+    },
+    {
+      "type": "TranscriptUpdate",
+      "code": 0,
+      "message": "success",
+      "session_id": "sess_8db8f0",
+      "server_time_ms": 1762900006200,
+      "segment_id": "seg_000001_02",
+      "revision": 1,
+      "source": "speaker_refine",
+      "is_final": true,
+      "text": "谢谢",
+      "segment_deleted": false,
+      "supersedes_segment_id": "seg_000001",
+      "parent_segment_id": "seg_000001",
+      "start_ms": 2480,
+      "end_ms": 3860,
+      "speaker_id": 1,
+      "speaker_state": "stable",
+      "replace_all_text": true
+    }
+  ]
+}
+```
+
+如果后续聚类认为不应拆分，服务端使用另一个 `reason=speaker_resegmentation` 批次，按顺序删除 `seg_000001_01`、`seg_000001_02`，再以更高 revision 恢复 `seg_000001`。客户端仍只提交一次业务状态。
+
+### 7.4 `SessionCompleted`
 
 会话结束后的最终消息。
 
@@ -436,7 +558,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 }
 ```
 
-### 7.4 `ErrorResponse`
+### 7.5 `ErrorResponse`
 
 服务端报错时返回。
 
@@ -486,9 +608,9 @@ client -> server: <binary pcm frame> ...
 server -> client: TranscriptUpdate(source=streaming, is_final=false)
 server -> client: TranscriptUpdate(source=streaming, is_final=true)
 server -> client: TranscriptUpdate(source=offline_asr)
-server -> client: TranscriptUpdate(source=speaker_refine)
+server -> client: TranscriptUpdate(source=speaker_refine) 或 TranscriptUpdateBatch(source=speaker_refine)
 client -> server: {"type":"FinishSession"}
-server -> client: TranscriptUpdate ...
+server -> client: TranscriptUpdate / TranscriptUpdateBatch ...
 server -> client: SessionCompleted
 ```
 
@@ -500,7 +622,7 @@ server -> client: SessionStarted(protocol_version=1)
 client -> server: <binary pcm frame> ...
 server -> client: TranscriptUpdate(source=streaming, ...)
 server -> client: TranscriptUpdate(source=offline_asr)
-server -> client: TranscriptUpdate(source=speaker_refine)
+server -> client: TranscriptUpdate(source=speaker_refine) 或 TranscriptUpdateBatch(source=speaker_refine)
 client -> server: stop
 server -> client: SessionCompleted
 ```

@@ -208,7 +208,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">转写结果</div>
-              <div class="card-desc">单事件流按 segment_id 增量渲染：草稿（识别中）与最终文本在同一行随修订更新，说话人作为更高修订回填</div>
+              <div class="card-desc">按 segment_id 增量渲染：单段通过 revision 覆盖，父段与子段的结构性替换通过原子批次一次提交</div>
             </div>
             <button class="btn-ghost compact-btn" id="clearSegBtn">清空</button>
           </div>

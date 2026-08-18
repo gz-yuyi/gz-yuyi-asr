@@ -2,6 +2,7 @@ import { $, qsa } from '../core/dom.js';
 import { persistEndpointSettings } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
 import { MIC_CAPTURE_WORKLET_SOURCE } from '../core/mic-capture-worklet.js';
+import { applyTranscriptUpdateToMap, stageTranscriptUpdateBatch } from '../core/transcript-state.js';
 import { esc, parseListInput, pretty, safeParse } from '../core/format.js';
 import { toast } from '../core/toast.js';
 
@@ -15,6 +16,7 @@ const realtime = {
   completed: null,
   segments: new Map(),   // segment_id -> latest TranscriptUpdate
   segNodes: new Map(),   // segment_id -> timeline row DOM node
+  batchIds: new Set(),   // committed TranscriptUpdateBatch ids
   errors: [],
   previewAudioBuffer: null,
   previewSource: null,
@@ -78,6 +80,9 @@ function summarizeRealtimeEvent(json) {
   }
   if (type === 'SessionCompleted') {
     return `SessionCompleted session=${json.session_id || ''} segments=${json.segment_count ?? ''}${json.canceled ? ' canceled' : ''}`;
+  }
+  if (type === 'TranscriptUpdateBatch') {
+    return `TranscriptUpdateBatch id=${json.batch_id || ''} source=${json.source || ''} reason=${json.reason || ''} updates=${Array.isArray(json.updates) ? json.updates.length : 0} atomic=${json.atomic === true}`;
   }
   if (type === 'ErrorResponse') {
     return `ErrorResponse code=${json.code || ''} error=${json.error_code || ''} message=${json.message || ''}`;
@@ -170,10 +175,9 @@ function speakerIdentity(seg) {
   return { primary: local, secondary: '', status };
 }
 
-// One event stream keyed by segment_id. Draft (is_final:false) and final
-// (is_final:true) are the same segment at different revisions; speaker labels
-// and word timings arrive as higher revisions of the same segment. No
-// cross-stream reconciliation needed.
+// State is keyed by segment_id. Draft/final/speaker/word updates are revisions
+// of that state; a TranscriptUpdateBatch only changes the atomic commit boundary
+// when one speaker re-segmentation replaces a parent with children or restores it.
 function sortedSegments() {
   return [...realtime.segments.values()]
     .filter(seg => !seg.segment_deleted)
@@ -737,6 +741,7 @@ function clearRealtimeState() {
   realtime.completed = null;
   realtime.segments.clear();
   realtime.segNodes.clear();
+  realtime.batchIds.clear();
   realtime.errors = [];
   resetTimeline();
   updateStats();
@@ -975,20 +980,33 @@ function renderRealtimeResults() {
   }
 }
 
-// Apply one TranscriptUpdate: keep the highest revision per segment_id, honour
-// deletion/supersede. Draft/final/speaker/words are all just revisions here.
+// Apply one standalone TranscriptUpdate and update its affected rows.
 function applyTranscriptUpdate(json) {
-  const id = json.segment_id;
-  if (id == null) return;
-  const cur = realtime.segments.get(id);
-  if (cur && (json.revision ?? 0) <= (cur.revision ?? 0)) return; // stale
-  if (json.supersedes_segment_id) removeSegmentRow(json.supersedes_segment_id);
-  if (json.segment_deleted) {
-    removeSegmentRow(id);
-    return;
+  const touched = applyTranscriptUpdateToMap(realtime.segments, json);
+  if (!touched.length) return;
+  for (const id of new Set(touched)) {
+    const seg = realtime.segments.get(id);
+    if (seg) upsertSegmentRow(seg);
+    else removeSegmentRow(id);
   }
-  realtime.segments.set(id, json);
-  upsertSegmentRow(json);
+}
+
+// A structural speaker re-segmentation is one application-level transaction:
+// parse/validate all nested updates, stage them, then swap state and reconcile
+// the DOM in the same JS task. No delete/add intermediate state is observable.
+function applyTranscriptUpdateBatch(json) {
+  const staged = stageTranscriptUpdateBatch(realtime.segments, json, realtime.batchIds);
+  if (staged.duplicate) return;
+
+  realtime.segments = staged.segments;
+  for (const id of staged.touched) {
+    if (!realtime.segments.has(id)) removeSegmentRow(id);
+  }
+  for (const id of staged.touched) {
+    const seg = realtime.segments.get(id);
+    if (seg) upsertSegmentRow(seg);
+  }
+  realtime.batchIds.add(json.batch_id);
 }
 
 function handleRealtimeEvent(json) {
@@ -998,6 +1016,8 @@ function handleRealtimeEvent(json) {
     setWsStatus(json.enable_speaker ? '已连接 · speaker on' : '已连接 · speaker off', 'ok');
   } else if (type === 'TranscriptUpdate') {
     applyTranscriptUpdate(json);
+  } else if (type === 'TranscriptUpdateBatch') {
+    applyTranscriptUpdateBatch(json);
   } else if (type === 'SessionCompleted') {
     realtime.completed = json;
   } else if (type === 'ErrorResponse') {
@@ -1023,7 +1043,15 @@ function setupWsHandlers(ws) {
       json.type === 'ErrorResponse' ? 'error' : 'info',
     );
     appendLogRaw($('realtimeLog'), pretty(json), 'log-recv', 'debug');
-    handleRealtimeEvent(json);
+    try {
+      handleRealtimeEvent(json);
+      updateStats();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      realtime.errors.push({ type: 'ClientProtocolError', detail });
+      appendLog($('realtimeLog'), `批次应用失败: ${detail}`, 'log-err', 'error');
+      toast('收到非法的原子批次，未应用任何子更新', 'error');
+    }
   };
   ws.onerror = () => {
     setWsStatus('连接错误', 'error');
@@ -1414,6 +1442,7 @@ export function registerRealtime() {
     realtime.errors = [];
     realtime.segments.clear();
     realtime.segNodes.clear();
+    realtime.batchIds.clear();
     resetTimeline();
     updateStats();
     renderRealtimeSummary();

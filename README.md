@@ -20,4 +20,6 @@ Console dev server entry: `http://localhost:5173/test-console.html`.
 
 The realtime microphone console captures with `AudioWorklet`, requests browser echo cancellation/noise suppression/automatic gain control off, logs capture-clock drift and track state, and downloads the exact 16 kHz PCM sent through WebSocket. `ScriptProcessor` remains only as a compatibility fallback.
 
+Structural speaker re-segmentation is delivered as one atomic `TranscriptUpdateBatch`: deleting/restoring a parent and adding/removing its children is one WebSocket message, while every nested segment keeps its own `segment_id` and `revision`.
+
 `npm run build` emits `dist-pages/` for GitHub Pages. The docs are served from `/`, and the standalone console is served from `/console/`.
