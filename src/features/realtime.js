@@ -86,13 +86,14 @@ function summarizeRealtimeEvent(json) {
     const seg = json.segment_id || '';
     const rev = json.revision ?? '';
     const spk = json.speaker_id != null ? ` speaker=${json.speaker_id}` : '';
+    const speakerFinal = json.speaker_is_final === true ? ' speaker-final' : '';
     const registered = json.speaker_match_status === 'matched'
       ? ` registered=${json.speaker_name || json.speaker_profile_id || ''}`
       : (json.speaker_match_status === 'unknown' ? ' registered=unknown' : '');
     const flag = json.segment_deleted ? 'deleted' : (json.is_final ? 'final' : 'draft');
     const time = formatMsRange(json.start_ms, json.end_ms);
     const preview = (json.text || '').slice(0, 80);
-    return `TranscriptUpdate seg=${seg} rev=${rev} ${json.source || ''} ${flag}${spk}${registered} ${time} text=${preview}`;
+    return `TranscriptUpdate seg=${seg} rev=${rev} ${json.source || ''} ${flag}${spk}${speakerFinal}${registered} ${time} text=${preview}`;
   }
   if (type === 'Pong') return 'Pong';
   return pretty(json);
@@ -893,6 +894,7 @@ function segmentRowInner(seg) {
         <span class="mono">${esc(seg.segment_id || '')}</span>
         <span>rev ${esc(seg.revision ?? '')}</span>
         ${seg.source ? `<span class="src-tag">${esc(seg.source)}</span>` : ''}
+        ${seg.speaker_is_final === true ? '<span class="src-tag">speaker final</span>' : ''}
       </div>
       <div class="live-text${isFinal ? '' : ' draft-text'}">${body}</div>
     </div>

@@ -74,6 +74,7 @@
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时服务端自动执行注册声纹识别 |
 | `enable_align` | bool | 否 | `true` | 是否生成词级时间戳；`false` 时跳过强制对齐并且不返回 `words`。最终生效还受服务端 `--no-align` 限制 |
+| `speaker_mode` | string/null | 否 | `cluster` | 说话人后端：`cluster`（最终与离线聚类对齐）或 `diart`（低延迟在线跟踪） |
 | `speaker_num` | int/null | 否 | 空 | 指定说话人数；为空使用自动估计 |
 | `group_ids` | string/array/null | 否 | `default` | 限定本次会话可匹配的声纹组 |
 | `speaker_profile_ids` | string/array/null | 否 | 空 | 限定本次会话可匹配的注册人员；为空匹配指定组内全部启用声纹 |
@@ -106,6 +107,7 @@
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时自动执行注册声纹识别 |
 | `enable_align` | bool | 否 | `true` | 是否生成词级时间戳（同新式握手字段） |
+| `speaker_mode` | string | 否 | `cluster` | `cluster` 或 `diart`；推荐新客户端通过 `StartSession` 设置 |
 | `speaker_num` | int | 否 | 空 | 指定说话人数 |
 | `group_ids` | string | 否 | `default` | 限定本次会话可匹配的声纹组 |
 | `speaker_profile_ids` | string | 否 | 空 | 限定本次会话可匹配的注册人员 |
@@ -220,6 +222,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `audio_encoding` | string | 实际生效的音频编码 |
 | `sample_rate` | int | 实际生效的采样率 |
 | `enable_speaker` | bool | 当前会话是否启用说话人回写 |
+| `speaker_mode` | string | 实际生效的说话人后端：`cluster` / `diart` |
 | `enable_speaker_recognition` | bool | 服务端计算的声纹识别状态；与 `enable_speaker` 联动，不是客户端配置项 |
 | `allowed_output_languages` | array | 实际生效的输出语种白名单；默认返回 `["zh","en"]` |
 
@@ -260,6 +263,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `end_ms` | int/null | 片段结束时间；未闭段时可为空 |
 | `speaker_id` | int/null | 当前会话内的展示 speaker 编号 |
 | `speaker_state` | string | `pending` / `provisional` / `stable` |
+| `speaker_is_final` | bool | **仅 Diart 最终说话人回写出现**；为 `true` 时，该 revision 携带的说话人字段不会再改变。Cluster 模式始终省略此字段 |
 | `speaker_match_status` | string/null | 注册声纹匹配状态：`matched` / `unknown`；未进行说话人回写时可省略 |
 | `speaker_profile_id` | string/null | 命中的注册声纹 Profile ID |
 | `speaker_name` | string/null | 命中的注册人员名称 |
@@ -276,7 +280,9 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - `source=offline_asr`：文本修正。
 - `source=speaker_refine`：说话人字段修正。
 - `source=emotion_refine`：情绪字段补充或修正。
-- `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（词级时间戳、离线精修、说话人回填仍可能到来）。
+- `speaker_is_final=true`：仅 Diart 在跟踪覆盖水位越过该段结尾后返回；即使说话人 ID 没有发生变化，也会发送一次完成消息。之后仍可能因其它字段收到更高 `revision`，但该段的 `speaker_id` 及注册声纹字段不会再改变。
+- Cluster 会随着新音频继续全局重聚类，因此会话进行中不返回 `speaker_is_final`；流结束后以 `SessionCompleted` 前各段收到的最大 `revision` 为最终结果。
+- `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（词级时间戳、离线精修、说话人回填仍可能到来），也不等价于说话人最终完成。
 - 启用 `enable_align` 时，词级时间戳可能在闭段文本之后以同一 `segment_id` 的更高 `revision` 单独回带；客户端不应假设 `words` 与初始 final 同时到达。
 - 流式草稿（`is_final=false`）仅作展示用途，随着更多音频到达可能发生局部回退或改写；客户端应按 `segment_id + revision` 整段替换，并以 `is_final=true` 的文本为准。该语义不依赖服务端采用哪种推理后端。
 - `segment_deleted=true`：该片段最终文本被后处理过滤为空（例如语气词过滤后无有效内容）；客户端若已展示该 `segment_id`，应删除/隐藏；如同时存在 `supersedes_segment_id`，还应删除/隐藏被替代的父片段。
@@ -329,7 +335,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 }
 ```
 
-示例 3：说话人回写
+示例 3：Diart 最终说话人回写
 
 ```json
 {
@@ -348,6 +354,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
   "end_ms": 3860,
   "speaker_id": 1,
   "speaker_state": "stable",
+  "speaker_is_final": true,
   "replace_all_text": true
 }
 ```
