@@ -298,7 +298,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - `source=offline_asr`：文本修正。
 - `source=speaker_refine`：说话人字段修正。
 - `source=emotion_refine`：情绪字段补充或修正。
-- `speaker_is_final=true`：仅 Diart 在跟踪覆盖水位越过该段结尾后返回；即使说话人 ID 没有发生变化，也会发送一次完成消息。之后仍可能因其它字段收到更高 `revision`，但该段的 `speaker_id` 及注册声纹字段不会再改变。
+- `speaker_is_final=true`：仅 Diart 在跟踪覆盖水位越过该段结尾后返回；覆盖水位前进会主动触发已就绪段的发送，不需要等待下一段 ASR 或流结束。即使说话人 ID 没有发生变化，也会发送一次完成消息。之后仍可能因其它字段收到更高 `revision`，但该段的 `speaker_id` 及注册声纹字段不会再改变。
 - Cluster 会随着新音频继续全局重聚类，因此会话进行中不返回 `speaker_is_final`；流结束后以 `SessionCompleted` 前各段收到的最大 `revision` 为最终结果。
 - `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（词级时间戳、离线精修、说话人回填仍可能到来），也不等价于说话人最终完成。
 - 启用 `enable_align` 时，词级时间戳可能在闭段文本之后以同一 `segment_id` 的更高 `revision` 单独回带；客户端不应假设 `words` 与初始 final 同时到达。
