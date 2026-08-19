@@ -447,6 +447,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - `updates` 使用确定顺序：先删除旧片段，再恢复或新增新片段；客户端仍应以原子事务提交，因此该顺序不会形成可见中间状态。
 - 嵌套 `TranscriptUpdate` 的 `session_id` 必须与批次一致，`source` 必须为 `speaker_refine`。
 - 子段必须设置 `parent_segment_id`；替代父段时设置 `supersedes_segment_id`，客户端不得依赖 `_01/_02` ID 后缀推断父子关系。
+- 子段按说话人重切时，无发音的 Unicode 标点不单独依据 Align 时间戳归属：中英文开标点跟随后一个有效文字，闭合、分隔及句末标点跟随前一个有效文字；不会创建纯标点子段。
 - Diart 最终批次中的有效子段继续返回 `speaker_is_final=true`；Cluster 模式仍省略该字段。
 - `batch_id` 不替代片段 revision。批次重放时按 `batch_id` 整批去重，片段状态冲突时仍以每个 `segment_id` 的最大 `revision` 为准。
 - 将 `updates` 按数组顺序展开后，必须与旧逐条协议产生完全相同的每段内容和 revision；批次封装不得筛选、合并或丢弃任何修正。
