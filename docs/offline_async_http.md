@@ -43,9 +43,9 @@
 | `SpeakerClusterMaxNumSpeakers` | int | 否 | 本次任务自动估计说话人数上限 |
 | `SpeakerClusterMinClusterSize` | int | 否 | 本次任务小簇重分配前的最小簇大小 |
 | `AsrSegmentationMode` | string | 否 | ASR 切段模式：`speaker_turn`=按说话人 turn 切段；`vad_word_align`=按 VAD/长窗转写后用字词时间戳对齐说话人 |
-| `NumberNormalizationMode` | int | 否 | 数字转换模式：`0/1/3`，默认 `1` |
-| `FillerFilterMode` | int | 否 | 语气词过滤模式：`0/1/2`，默认 `0` |
-| `ProfanityFilterMode` | int | 否 | 脏词过滤模式：`0/1/2`，默认 `0` |
+| `NumberNormalizationMode` | int | 否 | 数字转换模式：`0`=不转换，`1`=智能转换（默认），`3`=数学与数字串增强转换；详见[文本后处理模式](text-postprocessing.md#数字转换模式) |
+| `FillerFilterMode` | int | 否 | 语气词过滤模式：`0`=不处理（默认），`1`=基础语气词过滤，`2`=扩展填充词过滤；详见[文本后处理模式](text-postprocessing.md#语气词过滤模式) |
+| `ProfanityFilterMode` | int | 否 | 脏词过滤模式：`0`=不处理（默认），`1`=删除，`2`=替换为 `*`；详见[文本后处理模式](text-postprocessing.md#脏词过滤模式) |
 
 说明：
 - 热词表创建、查询和删除详见 [热词管理 API](hotwords_http.md)。
@@ -172,9 +172,9 @@
 | `SpeakerClusterMaxNumSpeakers` | int | 否 | 本次任务自动估计说话人数上限 |
 | `SpeakerClusterMinClusterSize` | int | 否 | 本次任务小簇重分配前的最小簇大小 |
 | `AsrSegmentationMode` | string | 否 | ASR 切段模式：`speaker_turn` 或 `vad_word_align` |
-| `number_normalization_mode` | int | 否 | 数字转换模式：`0/1/3`，默认 `1` |
-| `filler_filter_mode` | int | 否 | 语气词过滤模式：`0/1/2`，默认 `0` |
-| `profanity_filter_mode` | int | 否 | 脏词过滤模式：`0/1/2`，默认 `0` |
+| `number_normalization_mode` | int | 否 | 数字转换模式：`0`=不转换，`1`=智能转换（默认），`3`=数学与数字串增强转换；详见[文本后处理模式](text-postprocessing.md#数字转换模式) |
+| `filler_filter_mode` | int | 否 | 语气词过滤模式：`0`=不处理（默认），`1`=基础语气词过滤，`2`=扩展填充词过滤；详见[文本后处理模式](text-postprocessing.md#语气词过滤模式) |
+| `profanity_filter_mode` | int | 否 | 脏词过滤模式：`0`=不处理（默认），`1`=删除，`2`=替换为 `*`；详见[文本后处理模式](text-postprocessing.md#脏词过滤模式) |
 
 ### 请求体
 音频文件二进制内容。

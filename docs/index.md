@@ -30,6 +30,7 @@ features:
 
 - [实时 WebSocket 转写 API](./realtime-websocket-api.md)
 - [离线异步转写 API](./offline_async_http.md)
+- [转写文本后处理模式](./text-postprocessing.md)
 - [声纹注册与识别 API](./speaker_profiles_http.md)
 - [热词管理 API](./hotwords_http.md)
 - [系统状态 API](./system_status_http.md)

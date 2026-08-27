@@ -85,9 +85,9 @@
 | `speaker_num` | int/null | 否 | 空 | 指定说话人数；为空使用自动估计 |
 | `group_ids` | string/array/null | 否 | `default` | 限定本次会话可匹配的声纹组 |
 | `speaker_profile_ids` | string/array/null | 否 | 空 | 限定本次会话可匹配的注册人员；为空匹配指定组内全部启用声纹 |
-| `number_normalization_mode` | int | 否 | `1` | 数字转换模式：`0/1/3` |
-| `filler_filter_mode` | int | 否 | `0` | 语气词过滤模式：`0/1/2` |
-| `profanity_filter_mode` | int | 否 | `0` | 脏词过滤模式：`0/1/2` |
+| `number_normalization_mode` | int | 否 | `1` | 数字转换模式：`0`=不转换，`1`=智能转换，`3`=数学与数字串增强转换；详见[文本后处理模式](text-postprocessing.md#数字转换模式) |
+| `filler_filter_mode` | int | 否 | `0` | 语气词过滤模式：`0`=不处理，`1`=基础语气词过滤，`2`=扩展填充词过滤；详见[文本后处理模式](text-postprocessing.md#语气词过滤模式) |
+| `profanity_filter_mode` | int | 否 | `0` | 脏词过滤模式：`0`=不处理，`1`=删除，`2`=替换为 `*`；详见[文本后处理模式](text-postprocessing.md#脏词过滤模式) |
 
 注册声纹匹配随 `enable_speaker` 启用或关闭。旧客户端传入的 `enable_speaker_recognition` 会被忽略。
 
@@ -120,9 +120,9 @@
 | `speaker_profile_ids` | string | 否 | 空 | 限定本次会话可匹配的注册人员 |
 | `audio_encoding` | string | 否 | `pcm_s16le` | 实时音频编码 |
 | `sample_rate` | int | 否 | `16000` | 采样率 |
-| `number_normalization_mode` | int | 否 | `1` | 数字转换模式：`0/1/3` |
-| `filler_filter_mode` | int | 否 | `0` | 语气词过滤模式：`0/1/2` |
-| `profanity_filter_mode` | int | 否 | `0` | 脏词过滤模式：`0/1/2` |
+| `number_normalization_mode` | int | 否 | `1` | 数字转换模式：`0`=不转换，`1`=智能转换，`3`=数学与数字串增强转换；详见[文本后处理模式](text-postprocessing.md#数字转换模式) |
+| `filler_filter_mode` | int | 否 | `0` | 语气词过滤模式：`0`=不处理，`1`=基础语气词过滤，`2`=扩展填充词过滤；详见[文本后处理模式](text-postprocessing.md#语气词过滤模式) |
+| `profanity_filter_mode` | int | 否 | `0` | 脏词过滤模式：`0`=不处理，`1`=删除，`2`=替换为 `*`；详见[文本后处理模式](text-postprocessing.md#脏词过滤模式) |
 
 示例：
 
