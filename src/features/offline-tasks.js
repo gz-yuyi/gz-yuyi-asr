@@ -118,6 +118,9 @@ async function createOfflineTask() {
   if (allowedLanguages.length) payload.AllowedOutputLanguages = allowedLanguages;
   if (groupIds.length) payload.GroupIds = groupIds;
   if (profileIds.length) payload.SpeakerProfileIds = profileIds;
+  if (payload.FillerFilterMode === 3) {
+    payload.FillerFilterWords = parseListInput($('offlineFillerWords').value);
+  }
   Object.assign(payload, offlineSpeakerAdvancedOptions());
   try {
     appendLog(logEl, '创建任务...', 'log-sent', 'info');
@@ -149,6 +152,10 @@ async function uploadAndCreateTask() {
     allowed_output_languages: $('offlineAllowedLanguages').value.trim(),
     number_normalization_mode: $('offlineNumberMode').value,
     filler_filter_mode: $('offlineFillerMode').value,
+    filler_filter_words:
+      $('offlineFillerMode').value === '3'
+        ? parseListInput($('offlineFillerWords').value).join(',')
+        : '',
     profanity_filter_mode: $('offlineProfanityMode').value,
     GroupIds: parseListInput($('offlineSpeakerGroupIds').value),
     SpeakerProfileIds: parseListInput($('offlineSpeakerProfileIds').value),

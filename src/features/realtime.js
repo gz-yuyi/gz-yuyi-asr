@@ -714,6 +714,9 @@ function buildStartSessionPayload() {
   };
   if (payload.speaker_num == null) delete payload.speaker_num;
   if (payload.allowed_output_languages == null) delete payload.allowed_output_languages;
+  if (payload.filler_filter_mode === 3) {
+    payload.filler_filter_words = parseListInput($('realtimeFillerWords').value);
+  }
   if (groupIds.length) payload.group_ids = groupIds;
   if (profileIds.length) payload.speaker_profile_ids = profileIds;
   if (vadThreshold != null) payload.vad_threshold = vadThreshold;
