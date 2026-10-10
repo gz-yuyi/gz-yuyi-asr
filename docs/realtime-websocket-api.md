@@ -174,6 +174,12 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 
 其他文本消息返回 `ErrorResponse`，`error_code=INVALID_CONTROL_COMMAND`。
 
+### 3.6 会话时长与空闲超时
+
+会话**没有总时长上限**，只要客户端持续发送音频或服务端仍有在途处理，连接可以一直保持（数小时的会议会话无需客户端中途重连）。
+
+唯一的超时是空闲超时：当服务端没有在途工作、且超过配置时长（默认 30 秒）没有收到任何新音频或控制消息时，服务端发送 `ErrorResponse`（`code=4001`、`error_code=SESSION_ERROR`、`detail=realtime session idle timeout`），随后关闭连接（状态码 1000）。客户端需要长时间暂停送流时，应定期发送 `Ping` 或发送静音音频帧保活。
+
 ## 4. 事件时序
 
 1. 会话建立后，客户端持续发送音频帧。
