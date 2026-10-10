@@ -2,7 +2,7 @@ import { $, qsa } from '../core/dom.js';
 import { persistEndpointSettings } from '../core/api.js';
 import { appendLog, appendLogRaw } from '../core/logger.js';
 import { MIC_CAPTURE_WORKLET_SOURCE } from '../core/mic-capture-worklet.js';
-import { applyTranscriptUpdateToMap, stageTranscriptUpdateBatch } from '../core/transcript-state.js';
+import { applyTranscriptUpdateToMap, applySegmentToStats, createRealtimeStats, stageTranscriptUpdateBatch } from '../core/transcript-state.js';
 import { esc, parseListInput, pretty, safeParse } from '../core/format.js';
 import { toast } from '../core/toast.js';
 
@@ -18,6 +18,14 @@ const realtime = {
   segNodes: new Map(),   // segment_id -> timeline row DOM node
   batchIds: new Set(),   // committed TranscriptUpdateBatch ids
   errors: [],
+  // 增量统计：每条事件只改动受影响片段，不再全量扫描 segments（长会话下会拖慢页面）。
+  stats: createRealtimeStats(),
+  // 时间线 DOM 只保留最近 MAX_TIMELINE_ROWS 行，更早的行折叠掉（数据仍在内存里）。
+  foldedSegments: new Set(),
+  foldedCount: 0,
+  renderScheduled: false,
+  lastFinalEndMs: 0,
+  sentAudioMs: 0,
   previewAudioBuffer: null,
   previewSource: null,
   previewCtx: null,
@@ -70,6 +78,7 @@ const SPEAKER_COLORS = [
 ];
 
 const TIMELINE_STICKY_BOTTOM_PX = 80;
+const MAX_TIMELINE_ROWS = 400;
 
 function summarizeRealtimeEvent(json) {
   const type = json.type || 'Unknown';
@@ -110,14 +119,54 @@ function setWsStatus(label, kind) {
 }
 
 function updateStats() {
-  const segs = sortedSegments();
-  const finalCount = segs.filter(s => s.is_final).length;
+  const stats = realtime.stats;
+  const segmentCount = stats.finals + stats.drafts;
   $('statsLabel').textContent = [
     `chunks: ${realtime.chunksSent}`,
     `events: ${realtime.messages}`,
-    `segments: ${segs.length}`,
-    `final: ${finalCount}`,
+    `segments: ${segmentCount}`,
+    `final: ${stats.finals}`,
+    `delay: ${clientLagSeconds().toFixed(1)}s`,
+    `buf: ${sendBufferKiB()}KiB`,
   ].join(' · ');
+}
+
+function clientLagSeconds() {
+  const sentSeconds = realtime.sentAudioMs > 0
+    ? realtime.sentAudioMs / 1000
+    : realtime.micSentSamples / MIC_TARGET_SAMPLE_RATE;
+  return Math.max(0, sentSeconds - realtime.lastFinalEndMs / 1000);
+}
+
+function sendBufferKiB() {
+  const ws = realtime.ws;
+  return ws && ws.bufferedAmount ? Math.round(ws.bufferedAmount / 1024) : 0;
+}
+
+// 事件可能每秒十几条；合并到每帧最多渲染一次，避免长会话下渲染拖死送流。
+function scheduleRealtimeRender() {
+  if (realtime.renderScheduled) return;
+  realtime.renderScheduled = true;
+  requestAnimationFrame(() => {
+    realtime.renderScheduled = false;
+    renderRealtimeSummary();
+    updateStats();
+  });
+}
+
+function bumpLastFinalEnd(seg) {
+  if (!seg || !seg.is_final) return;
+  const end = Number(seg.end_ms) || 0;
+  if (end > realtime.lastFinalEndMs) realtime.lastFinalEndMs = end;
+}
+
+function resetRealtimeStats() {
+  realtime.stats = createRealtimeStats();
+  realtime.lastFinalEndMs = 0;
+  realtime.sentAudioMs = 0;
+  realtime.foldedSegments.clear();
+  realtime.foldedCount = 0;
+  updateFoldedHint();
 }
 
 function updateProgress() {
@@ -178,12 +227,6 @@ function speakerIdentity(seg) {
 // State is keyed by segment_id. Draft/final/speaker/word updates are revisions
 // of that state; a TranscriptUpdateBatch only changes the atomic commit boundary
 // when one speaker re-segmentation replaces a parent with children or restores it.
-function sortedSegments() {
-  return [...realtime.segments.values()]
-    .filter(seg => !seg.segment_deleted)
-    .sort((a, b) => (a.start_ms ?? 0) - (b.start_ms ?? 0));
-}
-
 function drawWaveform(canvas, audioBuffer, color = '#3b82f6') {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -746,6 +789,7 @@ function clearRealtimeState() {
   realtime.segNodes.clear();
   realtime.batchIds.clear();
   realtime.errors = [];
+  resetRealtimeStats();
   resetTimeline();
   updateStats();
   updateProgress();
@@ -783,15 +827,25 @@ async function sendAudio(file) {
       const bytes = new Uint8Array(pcm);
       realtime.totalChunks = Math.ceil(bytes.length / chunkBytes);
       appendLog($('realtimeLog'), `解码完成，共 ${bytes.length} 字节，将分 ${realtime.totalChunks} 块发送，间隔 ${sleepMs}ms`, 'log-info', 'info');
+      // 绝对时钟节拍：按“起点 + 序号 × 间隔”对齐，页面卡顿时不会永久拖慢送流。
+      const clockStartedAt = performance.now();
+      let sentChunks = 0;
       for (let off = 0; off < bytes.length; off += chunkBytes) {
         if (ws.readyState !== WebSocket.OPEN) throw new Error('WebSocket 已关闭');
         const chunk = bytes.slice(off, off + chunkBytes);
         ws.send(chunk);
         drawLiveChunk(liveCanvas, chunk.buffer);
         realtime.chunksSent++;
-        updateStats();
-        updateProgress();
-        if (sleepMs > 0) await sleep(sleepMs);
+        realtime.sentAudioMs += chunkBytes / bytesPerMs;
+        sentChunks++;
+        if (sentChunks % 10 === 0) {
+          updateStats();
+          updateProgress();
+        }
+        if (sleepMs > 0) {
+          const wait = clockStartedAt + sentChunks * sleepMs - performance.now();
+          if (wait > 0) await sleep(wait);
+        }
       }
     } else {
       if (audioEncoding !== 'pcm_s16le') {
@@ -800,15 +854,28 @@ async function sendAudio(file) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const rawChunkBytes = Math.max(1024, Number($('rawChunkBytes').value || 65536));
       realtime.totalChunks = Math.ceil(bytes.length / rawChunkBytes);
+      const clockStartedAt = performance.now();
+      let sentChunks = 0;
       for (let off = 0; off < bytes.length; off += rawChunkBytes) {
         if (ws.readyState !== WebSocket.OPEN) throw new Error('WebSocket 已关闭');
-        ws.send(bytes.slice(off, off + rawChunkBytes));
+        const chunk = bytes.slice(off, off + rawChunkBytes);
+        ws.send(chunk);
         realtime.chunksSent++;
-        updateStats();
-        updateProgress();
-        if (sleepMs > 0) await sleep(sleepMs);
+        realtime.sentAudioMs += chunk.length / 32;
+        sentChunks++;
+        if (sentChunks % 10 === 0) {
+          updateStats();
+          updateProgress();
+        }
+        if (sleepMs > 0) {
+          const wait = clockStartedAt + sentChunks * sleepMs - performance.now();
+          if (wait > 0) await sleep(wait);
+        }
       }
     }
+
+    updateStats();
+    updateProgress();
 
     appendLog($('realtimeLog'), `音频发送完成: ${file.name}`, 'log-sent', 'info');
     if (ws.readyState === WebSocket.OPEN) {
@@ -826,38 +893,24 @@ async function sendAudio(file) {
 function renderRealtimeSummary() {
   const session = realtime.session || {};
   const completed = realtime.completed || {};
-  const segs = sortedSegments();
-  const finalCount = segs.filter(s => s.is_final).length;
-  const draftCount = segs.filter(s => !s.is_final).length;
-  const speakers = new Set(
-    segs.filter(s => s.speaker_id != null && s.speaker_id !== '').map(s => String(s.speaker_id)),
-  );
-  const registeredSpeakers = new Set(
-    segs
-      .filter(s => s.speaker_match_status === 'matched')
-      .map(s => s.speaker_profile_id || s.speaker_name)
-      .filter(Boolean),
-  );
-  const unknownSpeakers = new Set(
-    segs
-      .filter(s => s.speaker_match_status === 'unknown' && s.speaker_id != null)
-      .map(s => String(s.speaker_id)),
-  );
+  const stats = realtime.stats;
   const speakerValue = session.session_id
-    ? (session.enable_speaker ? `${speakers.size} 人` : 'disabled')
+    ? (session.enable_speaker ? `${stats.speakers.size} 人` : 'disabled')
     : '-';
-  const lastEnd = segs.reduce((max, s) => Math.max(max, Number(s.end_ms) || 0), 0);
   const duration = completed.audio_duration_ms != null
     ? formatMs(completed.audio_duration_ms)
-    : formatMs(lastEnd);
+    : formatMs(stats.lastEndMs);
   const items = [
     ['Session', session.session_id || '-'],
-    ['最终', String(finalCount)],
-    ['识别中', String(draftCount)],
+    ['最终', String(stats.finals)],
+    ['识别中', String(stats.drafts)],
     ['说话人', speakerValue],
-    ['已注册', session.session_id ? `${registeredSpeakers.size} 人` : '-'],
-    ['未知声纹', session.session_id ? `${unknownSpeakers.size} 人` : '-'],
+    ['已注册', session.session_id ? `${stats.registered.size} 人` : '-'],
+    ['未知声纹', session.session_id ? `${stats.unknown.size} 人` : '-'],
     ['时长', duration],
+    ['客户端滞后', `${clientLagSeconds().toFixed(1)}s`],
+    ['发送缓冲', `${sendBufferKiB()}KiB`],
+    ['已折叠', String(realtime.foldedCount)],
   ];
   $('realtimeSummary').innerHTML = items.map(([label, value]) => `
     <div class="summary-cell">
@@ -911,10 +964,35 @@ function segmentRowInner(seg) {
 
 function resetTimeline() {
   realtime.segNodes.clear();
+  realtime.foldedSegments.clear();
+  realtime.foldedCount = 0;
+  updateFoldedHint();
   const timeline = $('realtimeTimeline');
   if (timeline) {
     timeline.innerHTML = '<div class="empty-state compact-empty">等待 TranscriptUpdate</div>';
   }
+}
+
+function updateFoldedHint() {
+  const hint = $('realtimeFoldedHint');
+  if (!hint) return;
+  hint.textContent = realtime.foldedCount > 0
+    ? `已折叠较早 ${realtime.foldedCount} 条片段（数据仍在内存中）`
+    : '';
+}
+
+// 时间线只保留最近 MAX_TIMELINE_ROWS 行：更早的行从 DOM 移除，避免长会话下几十万节点拖慢页面。
+function enforceTimelineLimit(timeline) {
+  while (realtime.segNodes.size > MAX_TIMELINE_ROWS) {
+    const first = timeline.querySelector('.live-row');
+    if (!first) break;
+    const id = first.dataset.seg;
+    first.remove();
+    realtime.segNodes.delete(id);
+    if (id != null) realtime.foldedSegments.add(id);
+    realtime.foldedCount += 1;
+  }
+  updateFoldedHint();
 }
 
 function insertRowSorted(timeline, node, startMs) {
@@ -934,6 +1012,7 @@ function insertRowSorted(timeline, node, startMs) {
 function upsertSegmentRow(seg) {
   const timeline = $('realtimeTimeline');
   if (!timeline) return;
+  if (realtime.foldedSegments.has(seg.segment_id)) return;
   const stick = shouldStickToTimelineBottom(timeline);
   let node = realtime.segNodes.get(seg.segment_id);
   if (!node) {
@@ -944,6 +1023,8 @@ function upsertSegmentRow(seg) {
     node.dataset.seg = seg.segment_id;
     insertRowSorted(timeline, node, seg.start_ms);
     realtime.segNodes.set(seg.segment_id, node);
+    enforceTimelineLimit(timeline);
+    if (!realtime.segNodes.has(seg.segment_id)) return;
   }
   node.dataset.final = String(!!seg.is_final);
   node.innerHTML = segmentRowInner(seg);
@@ -957,6 +1038,7 @@ function removeSegmentRow(segmentId) {
     node.remove();
     realtime.segNodes.delete(segmentId);
   }
+  realtime.foldedSegments.delete(segmentId);
   realtime.segments.delete(segmentId);
 }
 
@@ -985,13 +1067,25 @@ function renderRealtimeResults() {
 
 // Apply one standalone TranscriptUpdate and update its affected rows.
 function applyTranscriptUpdate(json) {
+  const incomingId = json?.segment_id;
+  const previous = incomingId != null ? realtime.segments.get(incomingId) : null;
+  const supersededId = json?.supersedes_segment_id;
+  const superseded = supersededId != null ? realtime.segments.get(supersededId) : null;
   const touched = applyTranscriptUpdateToMap(realtime.segments, json);
   if (!touched.length) return;
+  applySegmentToStats(realtime.stats, previous, -1);
+  applySegmentToStats(realtime.stats, superseded, -1);
   for (const id of new Set(touched)) {
     const seg = realtime.segments.get(id);
-    if (seg) upsertSegmentRow(seg);
-    else removeSegmentRow(id);
+    if (seg) {
+      applySegmentToStats(realtime.stats, seg, 1);
+      bumpLastFinalEnd(seg);
+      upsertSegmentRow(seg);
+    } else {
+      removeSegmentRow(id);
+    }
   }
+  scheduleRealtimeRender();
 }
 
 // A structural speaker re-segmentation is one application-level transaction:
@@ -1001,15 +1095,23 @@ function applyTranscriptUpdateBatch(json) {
   const staged = stageTranscriptUpdateBatch(realtime.segments, json, realtime.batchIds);
   if (staged.duplicate) return;
 
+  for (const id of staged.touched) {
+    applySegmentToStats(realtime.stats, realtime.segments.get(id), -1);
+  }
   realtime.segments = staged.segments;
   for (const id of staged.touched) {
     if (!realtime.segments.has(id)) removeSegmentRow(id);
   }
   for (const id of staged.touched) {
     const seg = realtime.segments.get(id);
-    if (seg) upsertSegmentRow(seg);
+    if (seg) {
+      applySegmentToStats(realtime.stats, seg, 1);
+      bumpLastFinalEnd(seg);
+      upsertSegmentRow(seg);
+    }
   }
   realtime.batchIds.add(json.batch_id);
+  scheduleRealtimeRender();
 }
 
 function handleRealtimeEvent(json) {
@@ -1026,13 +1128,13 @@ function handleRealtimeEvent(json) {
   } else if (type === 'ErrorResponse') {
     realtime.errors.push(json);
   }
-  renderRealtimeSummary();
+  // 每秒可能有十几条事件：合并到每帧一次渲染，长会话下不再拖慢页面。
+  scheduleRealtimeRender();
 }
 
 function setupWsHandlers(ws) {
   ws.onmessage = event => {
     realtime.messages++;
-    updateStats();
     const json = safeParse(event.data);
     if (!json) {
       appendLog($('realtimeLog'), `收到文本帧 ${String(event.data).slice(0, 120)}`, 'log-recv', 'info');
@@ -1048,7 +1150,6 @@ function setupWsHandlers(ws) {
     appendLogRaw($('realtimeLog'), pretty(json), 'log-recv', 'debug');
     try {
       handleRealtimeEvent(json);
-      updateStats();
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       realtime.errors.push({ type: 'ClientProtocolError', detail });

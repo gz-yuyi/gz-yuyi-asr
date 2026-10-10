@@ -1,6 +1,42 @@
 // Pure state transitions for realtime TranscriptUpdate events. Keeping this
 // independent from the DOM makes atomic batch semantics unit-testable.
 
+// 长会话下不能每条事件都全量扫描 segments；这里维护增量统计。
+export function createRealtimeStats() {
+  return {
+    finals: 0,
+    drafts: 0,
+    lastEndMs: 0,
+    speakers: new Map(),
+    registered: new Map(),
+    unknown: new Map(),
+  };
+}
+
+function bumpCounter(map, key, delta) {
+  if (key == null || key === '') return;
+  const next = (map.get(key) || 0) + delta;
+  if (next > 0) map.set(key, next);
+  else map.delete(key);
+}
+
+// delta = +1 应用片段，-1 撤销片段（更新/删除/被替代前调用）。
+export function applySegmentToStats(stats, seg, delta) {
+  if (!seg || !delta) return;
+  if (seg.is_final) stats.finals += delta;
+  else stats.drafts += delta;
+  const end = Number(seg.end_ms) || 0;
+  if (delta > 0 && end > stats.lastEndMs) stats.lastEndMs = end;
+  if (seg.speaker_id != null && seg.speaker_id !== '') {
+    bumpCounter(stats.speakers, String(seg.speaker_id), delta);
+  }
+  if (seg.speaker_match_status === 'matched') {
+    bumpCounter(stats.registered, seg.speaker_profile_id || seg.speaker_name || '', delta);
+  } else if (seg.speaker_match_status === 'unknown' && seg.speaker_id != null) {
+    bumpCounter(stats.unknown, String(seg.speaker_id), delta);
+  }
+}
+
 export function applyTranscriptUpdateToMap(segments, update) {
   const id = update?.segment_id;
   if (id == null) return [];
