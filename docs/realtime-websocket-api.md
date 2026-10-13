@@ -313,6 +313,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 - `speaker_is_final=true`：仅 Diart 在跟踪覆盖水位越过该段结尾后返回；覆盖水位前进会主动触发已就绪段的发送，不需要等待下一段 ASR 或流结束。即使说话人 ID 没有发生变化，也会发送一次完成消息。之后仍可能因其它字段收到更高 `revision`，但该段的 `speaker_id` 及注册声纹字段不会再改变。
 - Cluster 会随着新音频继续全局重聚类，因此会话进行中不返回 `speaker_is_final`；流结束后以 `SessionCompleted` 前各段收到的最大 `revision` 为最终结果。
 - `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（词级时间戳、离线精修、说话人回填仍可能到来），也不等价于说话人最终完成。
+- `words` 对应实际识别文本及音频，文本可能包含片段前后的语音上下文，因此词时间范围不保证完全包含在片段 `start_ms / end_ms` 内。客户端应保留真实词时间戳，不按片段界限裁剪；原片段时间范围不因对齐改变。
 - 启用 `enable_align` 时，词级时间戳可能在闭段文本之后以同一 `segment_id` 的更高 `revision` 单独回带；客户端不应假设 `words` 与初始 final 同时到达。正常结束会等待对齐回填后再发 `SessionCompleted`；取消后不再发布迟到结果。对齐失败会报告带 `segment_id` 的错误，不伪造时间戳。
 - 流式草稿（`is_final=false`）仅作展示用途，随着更多音频到达可能发生局部回退或改写；客户端应按 `segment_id + revision` 整段替换，并以 `is_final=true` 的文本为准。该语义不依赖服务端采用哪种推理后端。
 - `segment_deleted=true`：该片段最终文本被后处理过滤为空（例如语气词过滤后无有效内容）；客户端若已展示该 `segment_id`，应删除/隐藏；如同时存在 `supersedes_segment_id`，还应删除/隐藏被替代的父片段。
