@@ -80,7 +80,7 @@
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时服务端自动执行注册声纹识别 |
-| `enable_align` | bool | 否 | `true` | 是否生成词级时间戳；`false` 时跳过强制对齐并且不返回 `words`。最终生效还受服务端 `--no-align` 限制 |
+| `enable_align` | bool | 否 | `true` | 是否生成词级时间戳；`false` 时不执行对齐，也不返回 `words`。`SessionStarted.enable_align` 回显实际开关；服务端启用对齐但能力不可用时拒绝会话，不以空时间戳冒充已完成 |
 | `speaker_mode` | string/null | 否 | `cluster` | 说话人后端：`cluster`（最终与离线聚类对齐）或 `diart`（低延迟在线跟踪） |
 | `speaker_num` | int/null | 否 | 空 | 指定说话人数；为空使用自动估计 |
 | `group_ids` | string/array/null | 否 | `default` | 限定本次会话可匹配的声纹组 |
@@ -248,6 +248,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `audio_encoding` | string | 实际生效的音频编码 |
 | `sample_rate` | int | 实际生效的采样率 |
 | `enable_speaker` | bool | 当前会话是否启用说话人回写 |
+| `enable_align` | bool | 当前会话是否实际启用对齐；业务要求词时间戳时，应核对此字段为 `true`，并确认后续 `words` 回填，不能只检查请求参数 |
 | `speaker_mode` | string | 实际生效的说话人后端：`cluster` / `diart` |
 | `enable_speaker_recognition` | bool | 服务端计算的声纹识别状态；与 `enable_speaker` 联动，不是客户端配置项 |
 | `allowed_output_languages` | array | 实际生效的输出语种白名单；默认返回 `["zh","en"]` |
@@ -265,6 +266,7 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
   "audio_encoding": "pcm_s16le",
   "sample_rate": 16000,
   "enable_speaker": true,
+  "enable_align": true,
   "enable_speaker_recognition": true,
   "allowed_output_languages": ["zh", "en"]
 }
@@ -279,9 +281,10 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `type` | string | 固定 `TranscriptUpdate` |
 | `segment_id` | string | 片段 ID |
 | `revision` | int | 当前片段的版本号，单调递增 |
-| `source` | string | `streaming` / `offline_asr` / `speaker_refine` / `emotion_refine` |
+| `source` | string | `streaming` / `offline_asr` / `align_refine` / `speaker_refine` / `emotion_refine` |
 | `is_final` | bool | 当前片段是否已闭段 |
 | `text` | string | 最新文本 |
+| `words` | array | 对齐完成后出现；每项为 `{ "word": "文字", "start_ms": 120, "end_ms": 260 }`，时间相对于会话音频起点，以毫秒计；`word` 保留文本中的标点和空白，按顺序连接后与 `text` 一致 |
 | `segment_deleted` | bool | 是否删除/隐藏该片段；为 `true` 时客户端不应展示 `text` |
 | `supersedes_segment_id` | string/null | 被本片段替代的父片段 ID（用于合并/拆分场景） |
 | `parent_segment_id` | string/null | 本片段派生自的父片段 ID |
@@ -304,12 +307,13 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 
 - `source=streaming`：片段的初始或闭段文本。
 - `source=offline_asr`：文本修正。
+- `source=align_refine`：词级时间戳回填，不修改片段的公开起止范围。
 - `source=speaker_refine`：说话人字段修正。
 - `source=emotion_refine`：情绪字段补充或修正。
 - `speaker_is_final=true`：仅 Diart 在跟踪覆盖水位越过该段结尾后返回；覆盖水位前进会主动触发已就绪段的发送，不需要等待下一段 ASR 或流结束。即使说话人 ID 没有发生变化，也会发送一次完成消息。之后仍可能因其它字段收到更高 `revision`，但该段的 `speaker_id` 及注册声纹字段不会再改变。
 - Cluster 会随着新音频继续全局重聚类，因此会话进行中不返回 `speaker_is_final`；流结束后以 `SessionCompleted` 前各段收到的最大 `revision` 为最终结果。
 - `is_final=true`：表示片段已闭合，但不表示后续不会再收到更高 `revision`（词级时间戳、离线精修、说话人回填仍可能到来），也不等价于说话人最终完成。
-- 启用 `enable_align` 时，词级时间戳可能在闭段文本之后以同一 `segment_id` 的更高 `revision` 单独回带；客户端不应假设 `words` 与初始 final 同时到达。
+- 启用 `enable_align` 时，词级时间戳可能在闭段文本之后以同一 `segment_id` 的更高 `revision` 单独回带；客户端不应假设 `words` 与初始 final 同时到达。正常结束会等待对齐回填后再发 `SessionCompleted`；取消后不再发布迟到结果。对齐失败会报告带 `segment_id` 的错误，不伪造时间戳。
 - 流式草稿（`is_final=false`）仅作展示用途，随着更多音频到达可能发生局部回退或改写；客户端应按 `segment_id + revision` 整段替换，并以 `is_final=true` 的文本为准。该语义不依赖服务端采用哪种推理后端。
 - `segment_deleted=true`：该片段最终文本被后处理过滤为空（例如语气词过滤后无有效内容）；客户端若已展示该 `segment_id`，应删除/隐藏；如同时存在 `supersedes_segment_id`，还应删除/隐藏被替代的父片段。
 - 单纯过滤一个片段可以独立发送删除事件；说话人重切段产生的“删除父段 + 新增子段”或“删除子段 + 恢复父段”必须使用 `TranscriptUpdateBatch` 原子发送。
@@ -601,7 +605,10 @@ query 参数与新式握手的 `StartSession` 字段一一对应、语义相同�
 | `1002` | `UNSUPPORTED_AUDIO_ENCODING` | 输入编码或采样率不支持 |
 | `3001` | `ASR_INFERENCE_ERROR` | ASR 推理失败 |
 | `3003` | `SPEAKER_REFINE_ERROR` | 说话人回写失败 |
-| `4001` | `SESSION_ERROR` | 会话状态错误（如缺失或非法的 `StartSession`） |
+| `3004` | `VAD_PROCESSING_ERROR` | 实时切段处理失败，连接终止 |
+| `3004` | `AUDIO_RANGE_UNAVAILABLE` | 指定片段部分或全部音频缺失；只会处理仍保留的音频，返回的文本可能不完整，不代表完整转写成功 |
+| `3005` | `ALIGNMENT_ERROR` | 指定片段对齐失败；转写文本仍可使用，但没有该次对齐时间戳 |
+| `4001` | `SESSION_ERROR` | 会话状态错误（如非法的 `StartSession`、要求的对齐能力不可用或输入积压超限） |
 | `4002` | `INVALID_CONTROL_COMMAND` | 非法控制指令 |
 | `4030` | `LICENSE_UNAUTHORIZED` | 未授权：license 缺失/无效/过期，实时会话被拒绝（握手后立即返回 `ErrorResponse` 并关闭连接） |
 | `5000` | `INTERNAL_SERVER_ERROR` | 服务端内部异常 |
