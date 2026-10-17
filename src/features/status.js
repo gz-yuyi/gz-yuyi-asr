@@ -23,9 +23,11 @@ async function refreshSystemStatus() {
     const route = dataOrNull(routeRes);
     if (!route) throw new Error(routeRes.text || '无法读取授权信息');
     renderKv('routeKv', [
-      ['总的授权路数', route.TotalRoutes ?? route.LicensedRoutes ?? '-', ''],
+      ['总的授权路数', route.LicensedRoutes ?? '-', ''],
       ['实时使用', route.RealtimeActiveRoutes ?? 0, ''],
-      ['离线使用', route.OfflineActiveRoutes ?? 0, ''],
+      ['离线执行任务', route.OfflineRunningTasks ?? 0, ''],
+      ['离线每路实时倍数', route.OfflineAudioRatePerRoute ?? '-', ''],
+      ['离线总实时倍数', route.OfflineTotalAudioRate ?? '-', ''],
       ['到期时间', formatExpiration(route.ExpirationTime), ''],
     ]);
     toast('授权信息已刷新', 'success');

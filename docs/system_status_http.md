@@ -1,6 +1,6 @@
 # 系统状态 API
 
-## 查询授权与路数占用
+## 查询授权与任务状态
 
 ### 接口地址
 
@@ -13,13 +13,15 @@
   "Response": {
     "RequestId": "17695849897311",
     "Data": {
-      "LicensedRoutes": 50,
-      "TotalRoutes": 50,
-      "RealtimeActiveRoutes": 10,
-      "OfflineActiveRoutes": 30,
-      "AvailableRoutes": 10,
-      "QueuedTasks": 0,
-      "ExpirationTime": "2026-04-15T23:59:59"
+      "LicensedRoutes": 20,
+      "RealtimeActiveRoutes": 3,
+      "AvailableRoutes": 17,
+      "OfflineRunningTasks": 8,
+      "OfflineJobConcurrency": 8,
+      "OfflineAudioRatePerRoute": 2,
+      "OfflineTotalAudioRate": 40,
+      "QueuedTasks": 12,
+      "ExpirationTime": "2027-04-15T23:59:59"
     }
   }
 }
@@ -29,23 +31,25 @@
 
 | 字段名 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `LicensedRoutes` | int | 当前授权的总路数 |
-| `TotalRoutes` | int | `LicensedRoutes` 的兼容字段，含义相同 |
-| `RealtimeActiveRoutes` | int | 当前已准入并占用授权路数的实时会话数 |
-| `OfflineActiveRoutes` | int | 当前已准入并处于处理状态的离线任务数 |
-| `AvailableRoutes` | int | 当前空闲授权路数，即总路数减去实时和离线占用，最小为 `0` |
-| `QueuedTasks` | int | 尚未获得授权路数、仍在等待准入的离线任务数 |
-| `RealtimeReservedRoutes` | int | 单个 API 实例配置的实时会话上限；该字段不是当前实时占用数 |
+| `LicensedRoutes` | int | 当前授权路数，用于实时会话准入及离线总吞吐折算 |
+| `RealtimeActiveRoutes` | int | 当前已准入的实时会话数 |
+| `AvailableRoutes` | int | 当前空闲实时授权路数，即授权路数减实时占用，最小为 `0`；离线执行任务不扣除此值 |
+| `OfflineRunningTasks` | int | 当前处于处理状态的离线任务数，不代表占用相同数量的实时授权路 |
+| `OfflineJobConcurrency` | int | 当前离线同时执行任务上限；超出的任务排队 |
+| `OfflineAudioRatePerRoute` | number | 每条授权路折算的离线音频实时倍数 |
+| `OfflineTotalAudioRate` | number | 当前有效离线总吞吐额度，单位为音频秒/墙钟秒；授权无效时为 `0` |
+| `QueuedTasks` | int | 尚未进入执行阶段的离线任务数 |
+| `RealtimeReservedRoutes` | int | 单个服务实例配置的实时会话上限；不是当前实时占用数 |
 | `ExpirationTime` | string/null | 当前授权到期时间；不可用时为 `null` |
 
-### 路数语义
+### 授权与吞吐语义
 
-授权路数表示服务能够同时准入的用户级任务或会话数量。实时会话与离线任务共用同一个授权池，满足：
+离线总吞吐额度 = 授权路数 × 每路实时倍数。例如授权 20 路、每路 2 倍时，所有离线任务共享 40 倍实时额度；单个任务可以使用空闲额度，不保证也不限制每个任务恰好为 2 倍。
 
-```text
-RealtimeActiveRoutes + OfflineActiveRoutes <= TotalRoutes
-```
+离线按包含静音的输入音频时长计量，重叠切片不重复计入。已消耗的预算在失败或取消后不退还，未进入执行窗口的后续音频不提前整文件扣费。总额度约束工作准入的平均速度，允许有界在途工作造成结果交付突发，不是任意滚动一秒的返回速率承诺。
 
-授权范围内的离线任务进入处理状态并占用路数，超出授权容量的任务才计入 `QueuedTasks`。服务内部的音频切段、模型请求队列和瞬时推理并发属于实现细节，不改变上述占用路数的统计语义。
+任务创建成功后可以排队，即使任务数量小于授权路数，也不保证全部同时进入处理状态。实时授权会话数与离线执行任务数不再相加比较授权路数；两类业务共享计算资源，授权额度不代表硬件吞吐承诺。
 
-响应中可能包含额外授权诊断字段，客户端不应依赖未在本页列出的字段。
+实时不附加离线商业节拍，但仍检查授权、会话准入、输入大小和积压限制。客户端应按真实音频速度发送，不得将取消商业节拍理解为无限速上传或无限缓存。
+
+本次变更删除 `TotalRoutes` 和 `OfflineActiveRoutes`，客户端应直接使用上述字段，不依赖旧字段别名。响应中可能包含额外诊断字段，客户端不应依赖未在本页列出的字段。

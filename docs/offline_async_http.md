@@ -54,6 +54,7 @@
 - `SpeakerProfileId` 是全局唯一人员 ID；`GroupIds` 只限定候选范围，不改变人员身份。声纹管理详见 [声纹注册与识别 API](speaker_profiles_http.md)。
 - 不传 `AllowedOutputLanguages` 时默认允许中文和英语；需要其它语种集合时应显式传入白名单。
 - 授权无效时返回 `FailedOperation.LicenseUnauthorized`，且不会创建任务。
+- 离线任务共享「授权路数 × 每路实时倍数」的总吞吐额度，不再强制单任务最高速度。创建成功不表示立即执行，任务可能因执行容量或总额度不足排队；授权路数以内的任务也不保证全部同时运行。
 
 ### 请求示例（URL 方式）
 ```json
