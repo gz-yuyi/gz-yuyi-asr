@@ -2,6 +2,8 @@
 
 ## [未发布]
 
+- 离线任务受理后统一为业务“处理中”：`Status=1`、`StatusStr=processing`，包含等待调度和执行；不再返回等待状态0，列表用`Status=processing`替代`queued/running`。新增任务统计`ProcessingTasks`及系统状态`OfflineProcessingTasks`，按实际数量展示，不固定或截断为授权路数。测试网页主展示离线处理中数量，真实执行、等待调度和执行上限保留在可展开明细中；原始进度与时间含义不变，处理中不等于同时推理。
+
 - 离线改为按授权路数折算共享总吞吐，取消每任务强制速度；任务可排队，不保证授权路数以内全部同时执行。系统状态删除 `OfflineActiveRoutes` 和 `TotalRoutes`，使用 `OfflineRunningTasks`、`OfflineJobConcurrency`、`OfflineAudioRatePerRoute`、`OfflineTotalAudioRate`，实时空闲路数不再扣离线执行任务；测试控制台同步展示。
 
 - 明确词时间范围来自实际识别音频的前后语音上下文，不保证严格包含于片段的起止时间；客户端不得据此裁掉词时间戳。

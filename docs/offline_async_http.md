@@ -225,8 +225,8 @@
 | :--- | :--- | :--- |
 | `Response.RequestId` | string | 请求 ID（时间戳数字字符串） |
 | `Response.Data.TaskId` | int | 自增长任务 ID |
-| `Response.Data.Status` | int | 任务状态（0=等待中，1=执行中，2=成功，3=失败或取消） |
-| `Response.Data.StatusStr` | string | 状态描述 |
+| `Response.Data.Status` | int | 任务状态（1=处理中，包含等待调度和实际执行；2=成功；3=失败或取消）。不再返回0 |
+| `Response.Data.StatusStr` | string | 状态描述；等待调度和执行统一为 `processing` |
 | `Response.Data.CallbackStatus` | string | 回调状态：`not_required / pending / succeeded / failed` |
 | `Response.Data.CallbackAttempts` | int | 已执行的回调投递次数 |
 | `Response.Data.ProgressPercent` | number | 任务进度百分比，范围 `0.0 - 100.0` |
@@ -479,7 +479,7 @@
 ### 请求参数（Query）
 | 参数名 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `Status` | string | 否 | 状态过滤，默认 `succeeded`；支持 `queued / running / callback_pending / succeeded / failed / canceled / all` |
+| `Status` | string | 否 | 状态过滤，默认 `succeeded`；支持 `processing / callback_pending / succeeded / failed / canceled / all` |
 | `Limit` | int | 否 | 返回数量，默认 `50`，最大 `200` |
 | `Offset` | int | 否 | 偏移量，默认 `0` |
 
@@ -491,8 +491,8 @@
 | `Response.Data.Limit` | int | 本次请求的返回数量 |
 | `Response.Data.Offset` | int | 本次请求的偏移量 |
 | `Response.Data.Items[].TaskId` | int | 任务 ID |
-| `Response.Data.Items[].Status` | int | 任务状态（0=等待中，1=执行中，2=成功，3=失败或取消） |
-| `Response.Data.Items[].StatusStr` | string | 状态描述 |
+| `Response.Data.Items[].Status` | int | 任务状态（1=处理中，包含等待调度和实际执行；2=成功；3=失败或取消）。不再返回0 |
+| `Response.Data.Items[].StatusStr` | string | 状态描述；等待调度和执行统一为 `processing` |
 | `Response.Data.Items[].SourceType` | int | 音频来源类型 |
 | `Response.Data.Items[].SourceUrl` | string | URL 来源地址 |
 | `Response.Data.Items[].HotwordId` | string | 热词表 ID |
@@ -646,13 +646,14 @@
 ### 响应参数
 | 字段名 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `QueuedTasks` | int | 等待处理的任务数 |
-| `RunningTasks` | int | 正在处理或等待回调的任务数 |
+| `ProcessingTasks` | int | 业务处理中任务数，等于等待调度与实际执行任务之和，不按授权路数补齐或截断 |
+| `QueuedTasks` | int | 等待调度的任务数 |
+| `RunningTasks` | int | 当前实际执行的任务数，不包含排队或等待回调 |
 | `SucceededTasks` | int | 已成功任务数 |
 | `FailedTasks` | int | 识别失败任务数 |
 | `CanceledTasks` | int | 已取消任务数 |
 | `TotalTasks` | int | 任务总数 |
-| `PendingTranscriptionTasks` | int | 等待或正在转写的任务数 |
+| `PendingTranscriptionTasks` | int | 尚未结束的任务数；历史 `callback_pending` 状态仍可能计入，纯转写处理中数量以 `ProcessingTasks` 为准 |
 | `TranscriptionFailedTasks` | int | 转写失败任务数 |
 | `CallbackFailedTasks` | int | 回调最终失败任务数 |
 
@@ -662,6 +663,7 @@
   "Response": {
     "RequestId": "17695849897311",
     "Data": {
+      "ProcessingTasks": 1,
       "QueuedTasks": 0,
       "RunningTasks": 1,
       "SucceededTasks": 10,
@@ -816,6 +818,8 @@ code=1&message=FailedOperation.ErrorRecognize&requestId=17695849897311&taskId=1
 - `task_status` 会返回百分比进度；排队时为 `0`，成功后为 `100`。
 - `ProgressCurrent` 和 `ProgressTotal` 表示当前阶段的完成量。
 - `ProgressPercent` 是阶段进度估算，不代表严格的剩余耗时。
+- 新建任务与执行中的任务统一返回 `Status=1`、`StatusStr="processing"`，表示服务已受理并负责处理，包含等待调度，不保证已经开始推理。成功、失败和取消语义不变；回调状态独立，不因等待回调重新计入 `ProcessingTasks`。旧客户端应停止依赖 `Status=0`、`StatusStr="waiting"/"running"` 或列表过滤 `queued/running`，处理中列表统一用 `Status=processing`。
+- 统一业务状态不改变真实进度和时间：`ProgressStage=queued` 表示等待调度，`ProgressStage=running` 或后续阶段表示已经进入执行流程，`StartedAt` 仍为实际执行开始时间，不提前填写。
 - `ProgressStage` 可能为：`queued`、`running`、`preparing_audio`、`detecting_speech`、`segmenting_audio`、`transcribing`、`diarizing_speakers`、`assembling_result`、`succeeded`、`failed`、`canceled`。
 
 ---

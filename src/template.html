@@ -460,8 +460,7 @@
               <select id="browserStatus">
                 <option value="succeeded" selected>已完成</option>
                 <option value="all">全部</option>
-                <option value="queued">排队中</option>
-                <option value="running">运行中</option>
+                <option value="processing">处理中</option>
                 <option value="failed">失败</option>
                 <option value="canceled">已取消</option>
               </select>
@@ -764,6 +763,11 @@
             <button class="btn-primary" id="refreshStatusBtn">刷新</button>
           </div>
           <div class="kv-grid" id="routeKv"></div>
+          <p class="card-desc">离线处理中包含等待调度和实际执行的任务，不代表所有任务同时推理；授权路数用于折算总吞吐额度。</p>
+          <details>
+            <summary>调度明细</summary>
+            <div class="kv-grid" id="routeSchedulingKv"></div>
+          </details>
         </div>
       </section>
 

@@ -11,6 +11,10 @@ let browserAudioAbortController = null;
 const overlapPreviewCache = new Map();
 const overlapPreviewRequests = new Map();
 
+function taskStatusText(task) {
+  return task?.StatusStr === 'processing' ? '处理中' : (task?.StatusStr || '-');
+}
+
 function sourceSummary(task) {
   const source = task?.SourceUrl || task?.LocalPath || '';
   if (!source) return '无来源';
@@ -136,7 +140,7 @@ function renderTaskList() {
           <button class="task-item${active}" data-task-id="${esc(task.TaskId)}">
             <div class="task-line">
               <span class="task-id">#${esc(task.TaskId)}</span>
-              <span class="task-badge">${esc(task.StatusStr || '')}</span>
+              <span class="task-badge">${esc(taskStatusText(task))}</span>
             </div>
             <div class="task-name" title="${esc(taskName)}">${esc(taskName)}</div>
             <div class="task-preview">${esc(preview || '无识别文本')}</div>
@@ -373,7 +377,7 @@ function renderBrowserSummary(task) {
   const matched = matches.filter(item => item?.SpeakerMatchStatus === 'matched').length;
   const entries = [
     ['TaskId', task?.TaskId ?? '-'],
-    ['状态', task?.StatusStr || '-'],
+    ['状态', taskStatusText(task)],
     ['时长', task?.AudioDuration != null ? formatBrowserDuration(task.AudioDuration) : '-'],
     ['说话人段 / 说话人', `${state.browser.timelineSegments.length} / ${speakers.size}`],
     ['重叠区间', overlapRegions.length],
