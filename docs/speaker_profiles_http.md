@@ -111,14 +111,36 @@ SpeakerProfileId=spk_zhangsan 代表张三本人
 | `SpeakerProfileId` | string | 是 | 全局唯一人员 ID |
 | `SpeakerName` | string | 条件必填 | `AutoCreate=true` 且 Profile 不存在时必填 |
 | `SourceType` | int | 是 | 音频来源类型：`0`=URL，`1`=本地文件路径 |
-| `Url` | string | 条件必填 | 音频 URL 地址（`SourceType=0` 时必填） |
+| `Url` | string | 条件必填 | 音频 HTTP/HTTPS URL（`SourceType=0` 时必填），可为服务端能够访问的内网地址 |
 | `Extra` | string | 条件必填 | 本地音频文件绝对路径（`SourceType=1` 时必填） |
 | `AutoCreate` | bool | 否 | Profile 不存在时是否自动创建，默认 `false` |
 | `Description` | string | 否 | 自动创建 Profile 时使用的备注 |
 | `GroupId` | string | 否 | 将 Profile 加入该声纹组；不传使用默认组 `default` |
 | `GroupName` | string | 否 | 声纹组显示名称 |
 
-### 请求示例
+### URL 音频约束与错误
+
+- `SourceType=0` 时服务端下载 `Url` 指向的音频，再执行与本地文件/上传注册相同的音频解码、有效语音及声纹质量检查；不是把 URL 字符串当成本地文件路径。
+- 仅支持 HTTP/HTTPS，最多跟随 5 次重定向，重定向目标也必须使用 HTTP/HTTPS。
+- 下载文件最大为 **100 MiB**；连接超时为 **5 秒**，整个下载过程超时为 **5 分钟**，此时间不包含后续注册处理。
+- URL 缺失、类型或格式非法、协议不支持，以及下载内容无法解码为受支持音频时，返回 `InvalidParameterValue`。
+- 网络错误、下载超时、非成功 HTTP 状态、空响应或下载大小超限时，返回 `FailedOperation.ErrorDownFile`；失败不会新增注册样本。
+- 成功下载后仍可能因音频有效语音不足、质量不合格或人员不存在而返回相应的注册错误。
+
+### 请求示例（URL 方式）
+```json
+{
+  "SpeakerProfileId": "spk_zhangsan",
+  "SpeakerName": "张三",
+  "SourceType": 0,
+  "Url": "https://example.com/audio/zhangsan.wav",
+  "AutoCreate": true,
+  "GroupId": "customer_service",
+  "GroupName": "客服组"
+}
+```
+
+### 请求示例（本地路径方式）
 ```json
 {
   "SpeakerProfileId": "spk_zhangsan",
