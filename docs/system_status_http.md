@@ -19,8 +19,9 @@
       "OfflineProcessingTasks": 20,
       "OfflineRunningTasks": 8,
       "OfflineJobConcurrency": 8,
-      "OfflineAudioRatePerRoute": 2,
-      "OfflineTotalAudioRate": 40,
+      "RouteMinRtf": 0.4,
+      "OfflineAudioRatePerRoute": 2.5,
+      "OfflineTotalAudioRate": 50,
       "QueuedTasks": 12,
       "ExpirationTime": "2027-04-15T23:59:59"
     }
@@ -38,7 +39,8 @@
 | `OfflineProcessingTasks` | int | 已受理且尚未完成转写的离线任务数，包含等待调度与实际执行；等于 `QueuedTasks + OfflineRunningTasks`，不是同时推理路数 |
 | `OfflineRunningTasks` | int | 当前实际执行的离线任务数，不包含等待调度的任务，不代表占用相同数量的实时授权路 |
 | `OfflineJobConcurrency` | int | 当前离线同时执行任务上限；超出的任务排队 |
-| `OfflineAudioRatePerRoute` | number | 每条授权路折算的离线音频实时倍数 |
+| `RouteMinRtf` | number/null | 当前有效授权的RTF，必须为有限正数；授权无效或不可用时为 `null` |
+| `OfflineAudioRatePerRoute` | number | 由有效授权RTF计算的 `1 / RouteMinRtf`，不是独立配置或每任务限速；授权无效时为 `0` |
 | `OfflineTotalAudioRate` | number | 当前有效离线总吞吐额度，单位为音频秒/墙钟秒；授权无效时为 `0` |
 | `QueuedTasks` | int | 尚未进入执行阶段的离线任务数 |
 | `RealtimeReservedRoutes` | int | 单个服务实例配置的实时会话上限；不是当前实时占用数 |
@@ -46,7 +48,9 @@
 
 ### 授权与吞吐语义
 
-离线总吞吐额度 = 授权路数 × 每路实时倍数。例如授权 20 路、每路 2 倍时，所有离线任务共享 40 倍实时额度；单个任务可以使用空闲额度，不保证也不限制每个任务恰好为 2 倍。
+离线总吞吐额度 = 授权路数 ÷ 授权 `routeMinRtf`。例如授权1路、RTF 0.4时，总额度为2.5倍实时；20路、RTF 0.4时总额度为50倍实时。所有离线任务共享额度，单个任务可以使用空闲的总额度，不给每个任务单独设置最低RTF。
+
+授权路数和RTF刷新后影响后续预算领取；RTF缺失、非法或导致速率非有限时授权无效，不回退固定0.5。已消耗的额度不因刷新而重置。上传、排队和前后处理仍耗时，因此端到端实测RTF不保证等于授权RTF；这也不是硬件吞吐承诺。
 
 离线按包含静音的输入音频时长计量，重叠切片不重复计入。已消耗的预算在失败或取消后不退还，未进入执行窗口的后续音频不提前整文件扣费。总额度约束工作准入的平均速度，允许有界在途工作造成结果交付突发，不是任意滚动一秒的返回速率承诺。
 

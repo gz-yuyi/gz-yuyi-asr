@@ -2,6 +2,8 @@
 
 ## [未发布]
 
+- 离线共享额度恢复使用授权 `routeMinRtf`：总额度为授权路数除以授权RTF，刷新影响后续领取，不恢复每任务最低RTF或完成后补等待。授权RTF缺失、非法或折算溢出时授权无效，不回退固定0.5。系统状态新增 `RouteMinRtf`，每路与总倍数均来自有效授权计算；无效时RTF为 `null`、倍数为0。控制台同步显示授权RTF和派生速率；实际端到端耗时还包含上传及其他处理，不保证等于授权RTF。
+
 - 离线任务受理后统一为业务“处理中”：`Status=1`、`StatusStr=processing`，包含等待调度和执行；不再返回等待状态0，列表用`Status=processing`替代`queued/running`。新增任务统计`ProcessingTasks`及系统状态`OfflineProcessingTasks`，按实际数量展示，不固定或截断为授权路数。测试网页主展示离线处理中数量，真实执行、等待调度和执行上限保留在可展开明细中；原始进度与时间含义不变，处理中不等于同时推理。
 
 - 离线改为按授权路数折算共享总吞吐，取消每任务强制速度；任务可排队，不保证授权路数以内全部同时执行。系统状态删除 `OfflineActiveRoutes` 和 `TotalRoutes`，使用 `OfflineRunningTasks`、`OfflineJobConcurrency`、`OfflineAudioRatePerRoute`、`OfflineTotalAudioRate`，实时空闲路数不再扣离线执行任务；测试控制台同步展示。

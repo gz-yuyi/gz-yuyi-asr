@@ -22,7 +22,8 @@ export function buildRouteStatusEntries(route) {
     ['总的授权路数', route.LicensedRoutes ?? '-', ''],
     ['实时使用', route.RealtimeActiveRoutes ?? 0, ''],
     ['离线处理中任务', route.OfflineProcessingTasks ?? '-', ''],
-    ['离线每路实时倍数', route.OfflineAudioRatePerRoute ?? '-', ''],
+    ['授权RTF', route.RouteMinRtf ?? '-', ''],
+    ['授权每路折算倍数', route.OfflineAudioRatePerRoute ?? '-', ''],
     ['离线总实时倍数', route.OfflineTotalAudioRate ?? '-', ''],
     ['到期时间', formatExpiration(route.ExpirationTime), ''],
   ];

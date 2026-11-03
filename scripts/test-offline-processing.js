@@ -19,4 +19,14 @@ assert.ok(!template.includes('<option value="queued">'));
 assert.ok(!template.includes('<option value="running">'));
 assert.ok(template.includes('id="routeSchedulingKv"'));
 assert.ok(template.includes('不代表所有任务同时推理'));
-console.log('离线业务处理中展示回归通过');
+for (const rtf of [0.3, 0.4, 0.6]) {
+  const route = { LicensedRoutes: 1, RouteMinRtf: rtf, OfflineAudioRatePerRoute: 1 / rtf, OfflineTotalAudioRate: 1 / rtf };
+  const entries = new Map(buildRouteStatusEntries(route).map(([k, v]) => [k, v]));
+  assert.equal(entries.get('授权RTF'), rtf);
+  assert.equal(entries.get('授权每路折算倍数'), 1 / rtf);
+  assert.equal(entries.get('离线总实时倍数'), 1 / rtf);
+}
+const denied = new Map(buildRouteStatusEntries({ RouteMinRtf: null, OfflineAudioRatePerRoute: 0, OfflineTotalAudioRate: 0 }).map(([k, v]) => [k, v]));
+assert.equal(denied.get('授权RTF'), '-');
+assert.equal(denied.get('离线总实时倍数'), 0);
+console.log('离线业务处理中及授权RTF展示回归通过');
