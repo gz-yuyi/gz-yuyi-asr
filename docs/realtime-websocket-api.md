@@ -76,7 +76,7 @@
 | `hotword_id` | string/null | 否 | `default` | 热词表 ID |
 | `context` | string/null | 否 | 空 | 会话级 ASR 背景提示；与服务端自动滚动前文组合使用 |
 | `language` | string/null | 否 | 未设置 | 输出语种限制（单语种），如 `zh`、`en`、`ja`、`ko`；传入时替换默认中英白名单 |
-| `allowed_output_languages` | string/array/null | 否 | `["zh","en"]` | 输出语种白名单（多语种），如 `"zh,en"` 或 `["zh","en"]`；中文方言如 `Cantonese/yue` 归入 `zh` |
+| `allowed_output_languages` | string/array/null | 否 | `["zh","en"]` | 输出语种白名单（多语种），如 `"zh,en"` 或 `["zh","en"]`；中文方言如 `Cantonese/yue` 归入 `zh`；仅限制语种，不选择简繁，见[中文简繁输出](text-postprocessing.md#中文简繁输出) |
 | `vad_threshold` | float | 否 | `0.25` | VAD 阈值 |
 | `vad_min_silence_duration_ms` | int | 否 | `500` | 闭段最小静音时长 |
 | `enable_speaker` | bool | 否 | `true` | 是否启用说话人回写；启用时服务端自动执行注册声纹识别 |
