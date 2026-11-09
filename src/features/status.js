@@ -22,18 +22,7 @@ export function buildRouteStatusEntries(route) {
     ['总的授权路数', route.LicensedRoutes ?? '-', ''],
     ['实时使用', route.RealtimeActiveRoutes ?? 0, ''],
     ['离线处理中任务', route.OfflineProcessingTasks ?? '-', ''],
-    ['授权RTF', route.RouteMinRtf ?? '-', ''],
-    ['授权每路折算倍数', route.OfflineAudioRatePerRoute ?? '-', ''],
-    ['离线总实时倍数', route.OfflineTotalAudioRate ?? '-', ''],
     ['到期时间', formatExpiration(route.ExpirationTime), ''],
-  ];
-}
-
-export function buildSchedulingEntries(route) {
-  return [
-    ['实际执行任务', route.OfflineRunningTasks ?? '-', ''],
-    ['等待调度任务', route.QueuedTasks ?? '-', ''],
-    ['内部执行并发上限', route.OfflineJobConcurrency ?? '-', ''],
   ];
 }
 
@@ -43,7 +32,6 @@ async function refreshSystemStatus() {
     const route = dataOrNull(routeRes);
     if (!route) throw new Error(routeRes.text || '无法读取授权信息');
     renderKv('routeKv', buildRouteStatusEntries(route));
-    renderKv('routeSchedulingKv', buildSchedulingEntries(route));
     toast('授权信息已刷新', 'success');
   } catch (err) {
     toast(`请求失败: ${err.message}`, 'error');
